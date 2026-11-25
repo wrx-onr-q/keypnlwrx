@@ -11,7 +11,7 @@ DATA_DIR = '/data' if os.path.isdir('/data') else os.path.dirname(os.path.abspat
 DB_PATH = os.path.join(DATA_DIR, 'wrox.db')
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'WROX_SECRET_DEGISTIR_2025')
-AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E'  # C++ İLE AYNI
+AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E' 
 ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
 ADMIN_PASS = os.environ.get('ADMIN_PASS', 'admin123')
 
@@ -38,56 +38,29 @@ def init_db():
     db.executescript('''
     CREATE TABLE IF NOT EXISTS users(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      is_admin INTEGER DEFAULT 0,
-      is_banned INTEGER DEFAULT 0,
-      ban_reason TEXT,
-      invite_used TEXT,
-      created_at INTEGER DEFAULT (strftime('%s','now')),
-      last_login INTEGER
+      username TEXT UNIQUE NOT NULL,password TEXT NOT NULL,
+      is_admin INTEGER DEFAULT 0,is_banned INTEGER DEFAULT 0,ban_reason TEXT,
+      invite_used TEXT,created_at INTEGER DEFAULT (strftime('%s','now')),last_login INTEGER
     );
     CREATE TABLE IF NOT EXISTS keys(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key_value TEXT UNIQUE NOT NULL,
-      duration_seconds INTEGER NOT NULL,
-      max_devices INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s','now')),
-      expires_at INTEGER,
-      activated_at INTEGER,
-      created_by TEXT,
-      note TEXT,
-      is_banned INTEGER DEFAULT 0,
-      ban_reason TEXT
+      id INTEGER PRIMARY KEY AUTOINCREMENT,key_value TEXT UNIQUE NOT NULL,
+      duration_seconds INTEGER NOT NULL,max_devices INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),expires_at INTEGER,
+      activated_at INTEGER,created_by TEXT,note TEXT,
+      is_banned INTEGER DEFAULT 0,ban_reason TEXT
     );
     CREATE TABLE IF NOT EXISTS key_devices(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key_id INTEGER NOT NULL,
-      hwid TEXT NOT NULL,
-      ip TEXT,
-      first_seen INTEGER DEFAULT (strftime('%s','now')),
-      last_seen INTEGER DEFAULT (strftime('%s','now')),
-      UNIQUE(key_id, hwid),
-      FOREIGN KEY(key_id) REFERENCES keys(id) ON DELETE CASCADE
+      id INTEGER PRIMARY KEY AUTOINCREMENT,key_id INTEGER NOT NULL,hwid TEXT NOT NULL,ip TEXT,
+      first_seen INTEGER DEFAULT (strftime('%s','now')),last_seen INTEGER DEFAULT (strftime('%s','now')),
+      UNIQUE(key_id, hwid),FOREIGN KEY(key_id) REFERENCES keys(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS invite_codes(
-      code TEXT PRIMARY KEY,
-      max_uses INTEGER DEFAULT 1,
-      used INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS logs(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      action TEXT,
-      detail TEXT,
-      ip TEXT,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
-    );
+    CREATE TABLE IF NOT EXISTS invite_codes(code TEXT PRIMARY KEY,max_uses INTEGER DEFAULT 1,used INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,action TEXT,detail TEXT,ip TEXT,created_at INTEGER DEFAULT (strftime('%s','now')));
     ''')
     db.execute("INSERT OR IGNORE INTO invite_codes(code,max_uses) VALUES(?,999999)",('Wroxtanrıgibi',))
     if not db.execute("SELECT id FROM users WHERE is_admin=1").fetchone():
         h = bcrypt.hashpw(ADMIN_PASS.encode(), bcrypt.gensalt()).decode()
         db.execute("INSERT INTO users(username,password,is_admin) VALUES(?,?,1)",(ADMIN_USER,h))
-        print(f'> WROX Admin: {ADMIN_USER} / {ADMIN_PASS}')
     db.commit(); db.close()
 
 def random_key(prefix='WROX'):
@@ -118,45 +91,37 @@ def admin_required(f):
         return f(*a,**k)
     return w
 
-# ---------- AUTH ----------
+# ---------- API ROUTES ----------
 @app.route('/api/register',methods=['POST'])
 def register():
-    d = request.json or {}
-    u,p,inv = d.get('username'),d.get('password'),d.get('invite')
+    d = request.json or {}; u,p,inv = d.get('username'),d.get('password'),d.get('invite')
     if not u or not p or not inv: return jsonify({'status':False,'reason':'WROX: Eksik alan'})
-    db = get_db()
-    r = db.execute("SELECT * FROM invite_codes WHERE code=?",(inv,)).fetchone()
-    if not r or r['used']>=r['max_uses']: return jsonify({'status':False,'reason':'WROX: Geçersiz davet kodu'})
+    db = get_db(); r = db.execute("SELECT * FROM invite_codes WHERE code=?",(inv,)).fetchone()
+    if not r or r['used']>=r['max_uses']: return jsonify({'status':False,'reason':'WROX: Geçersiz davet'})
     try:
         h = bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
         db.execute("INSERT INTO users(username,password,invite_used) VALUES(?,?,?)",(u,h,inv))
         db.execute("UPDATE invite_codes SET used=used+1 WHERE code=?",(inv,))
-        log_action(db,'WROX_register',u,request.remote_addr); db.commit()
-        return jsonify({'status':True,'reason':'WROX: Kayıt başarılı'})
-    except sqlite3.IntegrityError: return jsonify({'status':False,'reason':'WROX: Kullanıcı zaten var'})
+        db.commit(); return jsonify({'status':True,'reason':'WROX: Kayıt başarılı'})
+    except sqlite3.IntegrityError: return jsonify({'status':False,'reason':'WROX: Kullanıcı var'})
 
 @app.route('/api/login',methods=['POST'])
 def login():
-    d = request.json or {}
-    db = get_db()
+    d = request.json or {}; db = get_db()
     u = db.execute("SELECT * FROM users WHERE username=?",(d.get('username'),)).fetchone()
     if not u or not bcrypt.checkpw((d.get('password') or '').encode(),u['password'].encode()):
         return jsonify({'status':False,'reason':'WROX: Hatalı bilgi'})
-    if u['is_banned']: return jsonify({'status':False,'reason':f"WROX: Hesap banlı. Sebep: {u['ban_reason'] or 'Belirtilmedi'}"})
-    db.execute("UPDATE users SET last_login=? WHERE id=?", (int(time.time()), u['id']))
+    if u['is_banned']: return jsonify({'status':False,'reason':f"WROX: Banlısınız ({u['ban_reason']})"})
+    db.execute("UPDATE users SET last_login=? WHERE id=?", (int(time.time()), u['id'])); db.commit()
     tok = jwt.encode({'id':u['id'],'username':u['username'],'is_admin':bool(u['is_admin']),'exp':int(time.time())+7*86400},JWT_SECRET,algorithm='HS256')
-    log_action(db,'WROX_login',u['username'],request.remote_addr); db.commit()
     return jsonify({'status':True,'token':tok,'username':u['username'],'is_admin':bool(u['is_admin'])})
 
-# ---------- KEY ----------
 @app.route('/api/key/create',methods=['POST'])
 @auth_required
 def create_key():
-    d = request.json or {}
-    t = d.get('type')
-    cnt = min(max(int(d.get('count') or 1),1),200)
-    md = min(max(int(d.get('max_devices') or 1),1),50)
-    pat = d.get('pattern'); note = d.get('note') or None
+    d = request.json or {}; t = d.get('type')
+    cnt = min(max(int(d.get('count') or 1),1),200); md = min(max(int(d.get('max_devices') or 1),1),50)
+    pat, note = d.get('pattern'), d.get('note')
     if t=='özel':
         dur = int(d.get('days') or 0)*86400+int(d.get('hours') or 0)*3600+int(d.get('minutes') or 0)*60
         if dur<=0: return jsonify({'status':False,'reason':'WROX: Süre girin'})
@@ -168,9 +133,8 @@ def create_key():
         try:
             db.execute("INSERT INTO keys(key_value,duration_seconds,max_devices,created_by,note) VALUES(?,?,?,?,?)",(kv,dur,md,request.user['username'],note))
             created.append(kv)
-        except sqlite3.IntegrityError: pass
-    log_action(db,'WROX_key_create',f"{len(created)} adet ({t})",request.remote_addr); db.commit()
-    return jsonify({'status':True,'keys':created,'duration':dur,'max_devices':md})
+        except: pass
+    db.commit(); return jsonify({'status':True,'keys':created})
 
 @app.route('/api/key/list',methods=['GET'])
 @auth_required
@@ -180,416 +144,313 @@ def list_keys():
     now = int(time.time()); out = []
     for k in rows:
         devs = db.execute("SELECT hwid,ip,first_seen,last_seen FROM key_devices WHERE key_id=?",(k['id'],)).fetchall()
-        if k['is_banned']: durum,kalan = 'banlı', '0'
+        if k['is_banned']: durum,kalan = 'BANLI', 0
         elif k['activated_at']:
-            if k['expires_at'] is None: durum,kalan = 'sınırsız','∞'
-            elif k['expires_at']<now: durum,kalan = 'doldu',0
-            else: durum,kalan = 'aktif',k['expires_at']-now
-        else:
-            durum = 'beklemede'
-            kalan = '∞' if k['duration_seconds']==0 else k['duration_seconds']
+            if k['expires_at'] is None: durum,kalan = 'SINIRSIZ', '∞'
+            elif k['expires_at']<now: durum,kalan = 'DOLDU', 0
+            else: durum,kalan = 'AKTİF', k['expires_at']-now
+        else: durum, kalan = 'BEKLEMEDE', ('∞' if k['duration_seconds']==0 else k['duration_seconds'])
         out.append({**dict(k),'durum':durum,'kalan':kalan,'devices':[dict(x) for x in devs]})
     return jsonify({'status':True,'keys':out})
 
 @app.route('/api/key/<int:kid>',methods=['DELETE'])
 @auth_required
 def delete_key(kid):
-    db = get_db()
-    k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
+    db = get_db(); k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
     if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
     if not request.user.get('is_admin') and k['created_by']!=request.user['username']: return jsonify({'status':False,'reason':'WROX: Yetkisiz'})
-    db.execute("DELETE FROM key_devices WHERE key_id=?",(kid,))
-    db.execute("DELETE FROM keys WHERE id=?",(kid,)); db.commit()
-    log_action(db,'WROX_key_delete',k['key_value'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Key silindi'})
+    db.execute("DELETE FROM key_devices WHERE key_id=?",(kid,)); db.execute("DELETE FROM keys WHERE id=?",(kid,)); db.commit()
+    return jsonify({'status':True})
 
 @app.route('/api/key/<int:kid>/reset-devices',methods=['POST'])
 @auth_required
 def reset_devices(kid):
-    db = get_db()
-    k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
+    db = get_db(); k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
     if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    if not request.user.get('is_admin') and k['created_by']!=request.user['username']: return jsonify({'status':False,'reason':'WROX: Yetkisiz'})
     db.execute("DELETE FROM key_devices WHERE key_id=?",(kid,)); db.commit()
-    log_action(db,'WROX_reset_devices',k['key_value'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Cihazlar sıfırlandı'})
-
-@app.route('/api/key/<int:kid>/ban',methods=['POST'])
-@admin_required
-def key_ban(kid):
-    d = request.json or {}
-    reason = d.get('reason','') or ''
-    db = get_db()
-    k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
-    if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    db.execute("UPDATE keys SET is_banned=1, ban_reason=? WHERE id=?",(reason,kid)); db.commit()
-    log_action(db,'WROX_key_ban',f"{k['key_value']} - {reason}",request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Key banlandı'})
-
-@app.route('/api/key/<int:kid>/unban',methods=['POST'])
-@admin_required
-def key_unban(kid):
-    db = get_db()
-    k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
-    if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    db.execute("UPDATE keys SET is_banned=0, ban_reason=NULL WHERE id=?",(kid,)); db.commit()
-    log_action(db,'WROX_key_unban',k['key_value'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Key banı açıldı'})
+    return jsonify({'status':True,'reason':'Cihazlar sıfırlandı'})
 
 @app.route('/api/key/<int:kid>/extend',methods=['POST'])
 @auth_required
 def extend_key(kid):
-    d = request.json or {}
-    sec = int(d.get('seconds') or 0)
-    db = get_db()
+    sec = int((request.json or {}).get('seconds') or 0); db = get_db()
     k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
-    if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    if not request.user.get('is_admin') and k['created_by']!=request.user['username']: return jsonify({'status':False,'reason':'WROX: Yetkisiz'})
-    if k['duration_seconds']==0: return jsonify({'status':False,'reason':'WROX: Sınırsız key uzatılamaz'})
+    if not k or k['duration_seconds']==0: return jsonify({'status':False,'reason':'İşlem yapılamaz'})
     now = int(time.time()); base = k['expires_at'] if (k['expires_at'] and k['expires_at']>now) else now
-    new_exp = base+sec
-    db.execute("UPDATE keys SET expires_at=? WHERE id=?",(new_exp,kid)); db.commit()
-    log_action(db,'WROX_key_extend',f"{k['key_value']} +{sec}sn",request.remote_addr); db.commit()
-    return jsonify({'status':True,'expires_at':new_exp})
+    db.execute("UPDATE keys SET expires_at=? WHERE id=?",(base+sec,kid)); db.commit()
+    return jsonify({'status':True,'reason':'Süre uzatıldı'})
+
+@app.route('/api/key/<int:kid>/ban',methods=['POST'])
+@admin_required
+def key_ban(kid):
+    reason = (request.json or {}).get('reason','Kural ihlali'); db = get_db()
+    db.execute("UPDATE keys SET is_banned=1, ban_reason=? WHERE id=?",(reason,kid)); db.commit()
+    return jsonify({'status':True,'reason':'Key banlandı'})
+
+@app.route('/api/key/<int:kid>/unban',methods=['POST'])
+@admin_required
+def key_unban(kid):
+    db = get_db(); db.execute("UPDATE keys SET is_banned=0, ban_reason=NULL WHERE id=?",(kid,)); db.commit()
+    return jsonify({'status':True,'reason':'Ban açıldı'})
 
 @app.route('/api/key/<int:kid>/devices',methods=['GET'])
 @auth_required
 def key_devices(kid):
-    db = get_db()
-    k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
-    if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    if not request.user.get('is_admin') and k['created_by']!=request.user['username']: return jsonify({'status':False,'reason':'WROX: Yetkisiz'})
+    db = get_db(); k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
     devs = db.execute("SELECT * FROM key_devices WHERE key_id=? ORDER BY last_seen DESC",(kid,)).fetchall()
     return jsonify({'status':True,'devices':[dict(d) for d in devs],'max':k['max_devices']})
 
-# ---------- ADMIN: KULLANICI YÖNETİMİ ----------
 @app.route('/api/admin/users',methods=['GET'])
 @admin_required
 def admin_users():
     db = get_db()
-    rows = db.execute("""
-      SELECT u.id,u.username,u.is_admin,u.is_banned,u.ban_reason,u.created_at,u.last_login,u.invite_used,
-        (SELECT COUNT(*) FROM keys WHERE created_by=u.username) as key_count
-      FROM users u ORDER BY u.id DESC
-    """).fetchall()
+    rows = db.execute("SELECT u.*, (SELECT COUNT(*) FROM keys WHERE created_by=u.username) as key_count FROM users u ORDER BY u.id DESC").fetchall()
     return jsonify({'status':True,'users':[dict(r) for r in rows]})
 
-@app.route('/api/admin/user/<int:uid>/ban',methods=['POST'])
+@app.route('/api/admin/user/<int:uid>/<action>',methods=['POST'])
 @admin_required
-def admin_user_ban(uid):
-    d = request.json or {}
-    reason = d.get('reason','') or ''
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not u: return jsonify({'status':False,'reason':'WROX: Kullanıcı yok'})
-    if u['is_admin']: return jsonify({'status':False,'reason':'WROX: Admin banlanamaz'})
-    db.execute("UPDATE users SET is_banned=1, ban_reason=? WHERE id=?",(reason,uid)); db.commit()
-    log_action(db,'WROX_user_ban',f"{u['username']} - {reason}",request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Kullanıcı banlandı'})
-
-@app.route('/api/admin/user/<int:uid>/unban',methods=['POST'])
-@admin_required
-def admin_user_unban(uid):
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not u: return jsonify({'status':False,'reason':'WROX: Kullanıcı yok'})
-    db.execute("UPDATE users SET is_banned=0, ban_reason=NULL WHERE id=?",(uid,)); db.commit()
-    log_action(db,'WROX_user_unban',u['username'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Ban açıldı'})
-
-@app.route('/api/admin/user/<int:uid>/delete',methods=['DELETE'])
-@admin_required
-def admin_user_delete(uid):
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not u: return jsonify({'status':False,'reason':'WROX: Kullanıcı yok'})
-    if u['is_admin']: return jsonify({'status':False,'reason':'WROX: Admin silinemez'})
-    db.execute("DELETE FROM users WHERE id=?",(uid,)); db.commit()
-    log_action(db,'WROX_user_delete',u['username'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Kullanıcı silindi'})
-
-@app.route('/api/admin/user/<int:uid>/make-admin',methods=['POST'])
-@admin_required
-def admin_user_promote(uid):
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not u: return jsonify({'status':False,'reason':'WROX: Kullanıcı yok'})
-    db.execute("UPDATE users SET is_admin=1 WHERE id=?",(uid,)); db.commit()
-    log_action(db,'WROX_user_promote',u['username'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Admin yapıldı'})
-
-@app.route('/api/admin/user/<int:uid>/remove-admin',methods=['POST'])
-@admin_required
-def admin_user_demote(uid):
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not u: return jsonify({'status':False,'reason':'WROX: Kullanıcı yok'})
-    # En az 1 admin kalsın
-    admins = db.execute("SELECT COUNT(*) c FROM users WHERE is_admin=1").fetchone()['c']
-    if admins <= 1: return jsonify({'status':False,'reason':'WROX: Son admin kaldırılamaz'})
-    db.execute("UPDATE users SET is_admin=0 WHERE id=?",(uid,)); db.commit()
-    log_action(db,'WROX_user_demote',u['username'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Admin yetkisi kaldırıldı'})
-
-@app.route('/api/admin/user/<int:uid>/password',methods=['POST'])
-@admin_required
-def admin_user_password(uid):
-    d = request.json or {}
-    new_pass = d.get('password','')
-    if len(new_pass)<4: return jsonify({'status':False,'reason':'WROX: Şifre çok kısa'})
-    db = get_db()
-    u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
-    if not u: return jsonify({'status':False,'reason':'WROX: Kullanıcı yok'})
-    h = bcrypt.hashpw(new_pass.encode(), bcrypt.gensalt()).decode()
-    db.execute("UPDATE users SET password=? WHERE id=?",(h,uid)); db.commit()
-    log_action(db,'WROX_user_pwchange',u['username'],request.remote_addr); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Şifre değiştirildi'})
-
-# ---------- ADMIN: DİĞER ----------
-@app.route('/api/admin/invites',methods=['GET'])
-@admin_required
-def admin_invites():
-    db = get_db()
-    return jsonify({'status':True,'invites':[dict(r) for r in db.execute("SELECT * FROM invite_codes").fetchall()]})
-
-@app.route('/api/admin/invite',methods=['POST'])
-@admin_required
-def admin_add_invite():
-    d = request.json or {}
-    code, mx = d.get('code'), int(d.get('max_uses') or 10)
-    if not code: return jsonify({'status':False,'reason':'WROX: Kod boş'})
-    db = get_db()
-    try:
-        db.execute("INSERT INTO invite_codes(code,max_uses) VALUES(?,?)",(code,mx)); db.commit()
-        log_action(db,'WROX_invite_create',code,request.remote_addr); db.commit()
-        return jsonify({'status':True,'reason':'WROX: Davet eklendi'})
-    except sqlite3.IntegrityError: return jsonify({'status':False,'reason':'WROX: Kod zaten var'})
-
-@app.route('/api/admin/invite/<code>',methods=['DELETE'])
-@admin_required
-def admin_del_invite(code):
-    db = get_db()
-    db.execute("DELETE FROM invite_codes WHERE code=?",(code,)); db.commit()
-    return jsonify({'status':True,'reason':'WROX: Davet silindi'})
-
-@app.route('/api/admin/logs',methods=['GET'])
-@admin_required
-def admin_logs():
-    db = get_db()
-    return jsonify({'status':True,'logs':[dict(r) for r in db.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 300").fetchall()]})
+def admin_user_action(uid, action):
+    db = get_db(); u = db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
+    if not u: return jsonify({'status':False,'reason':'Kullanıcı yok'})
+    if action=='ban':
+        if u['is_admin']: return jsonify({'status':False,'reason':'Admin banlanamaz'})
+        db.execute("UPDATE users SET is_banned=1, ban_reason=? WHERE id=?",((request.json or {}).get('reason',''), uid))
+    elif action=='unban': db.execute("UPDATE users SET is_banned=0 WHERE id=?",(uid,))
+    elif action=='make-admin': db.execute("UPDATE users SET is_admin=1 WHERE id=?",(uid,))
+    elif action=='remove-admin': db.execute("UPDATE users SET is_admin=0 WHERE id=?",(uid,))
+    elif action=='delete':
+        if u['is_admin']: return jsonify({'status':False,'reason':'Admin silinemez'})
+        db.execute("DELETE FROM users WHERE id=?",(uid,))
+    db.commit(); return jsonify({'status':True,'reason':'İşlem başarılı'})
 
 @app.route('/api/admin/stats',methods=['GET'])
 @admin_required
 def admin_stats():
-    db = get_db()
+    db = get_db(); now = int(time.time())
     return jsonify({'status':True,
         'users':db.execute("SELECT COUNT(*) c FROM users").fetchone()['c'],
-        'banned_users':db.execute("SELECT COUNT(*) c FROM users WHERE is_banned=1").fetchone()['c'],
         'keys':db.execute("SELECT COUNT(*) c FROM keys").fetchone()['c'],
-        'active':db.execute("SELECT COUNT(*) c FROM keys WHERE activated_at IS NOT NULL AND (expires_at IS NULL OR expires_at>?) AND is_banned=0",(int(time.time()),)).fetchone()['c'],
-        'banned_keys':db.execute("SELECT COUNT(*) c FROM keys WHERE is_banned=1").fetchone()['c'],
-        'devices':db.execute("SELECT COUNT(*) c FROM key_devices").fetchone()['c']})
+        'active':db.execute("SELECT COUNT(*) c FROM keys WHERE activated_at IS NOT NULL AND (expires_at IS NULL OR expires_at>?) AND is_banned=0",(now,)).fetchone()['c']})
 
-# ---------- /connect (C++ İLE UYUMLU) ----------
+@app.route('/api/admin/invites',methods=['GET'])
+@admin_required
+def admin_invites():
+    db = get_db(); return jsonify({'status':True,'invites':[dict(r) for r in db.execute("SELECT * FROM invite_codes").fetchall()]})
+
+@app.route('/api/admin/invite',methods=['POST'])
+@admin_required
+def admin_add_invite():
+    d = request.json or {}; db = get_db()
+    try:
+        db.execute("INSERT INTO invite_codes(code,max_uses) VALUES(?,?)",(d.get('code'),int(d.get('max_uses') or 10))); db.commit()
+        return jsonify({'status':True,'reason':'Eklendi'})
+    except: return jsonify({'status':False,'reason':'Zaten var'})
+
 @app.route('/connect',methods=['POST', 'GET'])
 def connect():
-    if request.method == 'GET':
-        return jsonify({'status':False, 'reason':'WROX: Bu adres sadece uygulama (POST) isteklerini kabul eder.'})
-
+    if request.method == 'GET': return jsonify({'status':False, 'reason':'WROX: Sadece POST kabul edilir.'})
     user_key = request.form.get('user_key') or (request.json or {}).get('user_key')
     serial = request.form.get('serial') or (request.json or {}).get('serial') or 'unknown'
     game = request.form.get('game') or (request.json or {}).get('game') or 'PUBG'
     ip = request.remote_addr or ''
-    
-    if not user_key: return jsonify({'status':False,'reason':'WROX: Eksik user_key'})
-    db = get_db()
-    k = db.execute("SELECT * FROM keys WHERE key_value=?",(user_key,)).fetchone()
-    
-    if not k:
-        log_action(db,'WROX_connect_fail',f'{user_key} (bulunamadı)',ip); db.commit()
-        return jsonify({'status':False,'reason':'WROX: Key bulunamadı'})
-    
-    if k['is_banned']:
-        log_action(db,'WROX_connect_fail',f'{user_key} (banlı)',ip); db.commit()
-        return jsonify({'status':False,'reason':f"WROX: Key banlı. Sebep: {k['ban_reason'] or 'Belirtilmedi'}"})
-    
+    if not user_key: return jsonify({'status':False,'reason':'Eksik user_key'})
+    db = get_db(); k = db.execute("SELECT * FROM keys WHERE key_value=?",(user_key,)).fetchone()
+    if not k: return jsonify({'status':False,'reason':'Key bulunamadı'})
+    if k['is_banned']: return jsonify({'status':False,'reason':'Key banlı'})
     now = int(time.time())
     dev = db.execute("SELECT * FROM key_devices WHERE key_id=? AND hwid=?",(k['id'],serial)).fetchone()
     if not dev:
-        c = db.execute("SELECT COUNT(*) c FROM key_devices WHERE key_id=?",(k['id'],)).fetchone()['c']
-        if c >= k['max_devices']:
-            log_action(db,'WROX_connect_fail',f'{user_key} (limit {c}/{k["max_devices"]})',ip); db.commit()
-            return jsonify({'status':False,'reason':f'WROX: Cihaz limiti dolu ({c}/{k["max_devices"]})'})
+        if db.execute("SELECT COUNT(*) c FROM key_devices WHERE key_id=?",(k['id'],)).fetchone()['c'] >= k['max_devices']:
+            return jsonify({'status':False,'reason':'Cihaz limiti dolu'})
         db.execute("INSERT INTO key_devices(key_id,hwid,ip) VALUES(?,?,?)",(k['id'],serial,ip))
-    else:
-        db.execute("UPDATE key_devices SET last_seen=?, ip=? WHERE id=?",(now,ip,dev['id']))
-    
+    else: db.execute("UPDATE key_devices SET last_seen=?, ip=? WHERE id=?",(now,ip,dev['id']))
     if not k['activated_at']:
         exp = None if k['duration_seconds']==0 else now+k['duration_seconds']
-        db.execute("UPDATE keys SET activated_at=?, expires_at=? WHERE id=?",(now,exp,k['id']))
-        k = dict(k); k['activated_at']=now; k['expires_at']=exp
-        log_action(db,'WROX_activate',f'{user_key} ({k["duration_seconds"]}sn)',ip)
-    
-    if k['expires_at'] is not None and now > k['expires_at']:
-        log_action(db,'WROX_connect_fail',f'{user_key} (süre doldu)',ip); db.commit()
-        return jsonify({'status':False,'reason':'WROX: Key süresi dolmuş'})
-    
+        db.execute("UPDATE keys SET activated_at=?, expires_at=? WHERE id=?",(now,exp,k['id'])); k = dict(k); k['expires_at']=exp
+    if k['expires_at'] is not None and now > k['expires_at']: return jsonify({'status':False,'reason':'Süre doldu'})
     token = hashlib.md5(f'{game}-{user_key}-{serial}-{AUTH_SECRET}'.encode()).hexdigest()
-    log_action(db,'WROX_connect_ok',f'{user_key} @{serial[:12]}',ip); db.commit()
-    return jsonify({'status':True,'data':{'token':token,'rng':now}})
+    db.commit(); return jsonify({'status':True,'data':{'token':token,'rng':now}})
 
-# ---------- FRONTEND ----------
+# ---------- HTML/CSS/JS (MOBILE APP UI) ----------
 HTML = r"""<!DOCTYPE html>
 <html lang="tr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>WROX Key Panel</title>
+<title>WROX Panel</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',sans-serif}
-body{min-height:100vh;background:#0b0f1a;color:#e8eefc;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',sans-serif;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;background:#080c14;color:#e8eefc;overflow-x:hidden;padding-bottom:70px}
 #fx{position:fixed;inset:0;pointer-events:none;z-index:0}
-.wrap{position:relative;z-index:2;max-width:1200px;margin:0 auto;padding:16px 12px}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}
-h1{font-size:20px;letter-spacing:1px;background:linear-gradient(90deg,#7dd3fc,#a78bfa);-webkit-background-clip:text;color:transparent;font-weight:900}
-h2{font-size:15px;margin-bottom:10px;color:#a5b4fc}
-.card{background:rgba(20,28,45,.78);backdrop-filter:blur(14px);border:1px solid rgba(120,160,255,.15);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
-input,select,button,textarea{width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(120,160,255,.25);background:rgba(10,15,28,.9);color:#e8eefc;font-size:14px;margin:4px 0;outline:none;font-family:inherit}
-input:focus,select:focus{border-color:#7dd3fc}
-button{background:linear-gradient(90deg,#2563eb,#7c3aed);border:none;cursor:pointer;font-weight:600;transition:.2s}
-button:hover{filter:brightness(1.15)}
-button.danger{background:linear-gradient(90deg,#dc2626,#b91c1c)}
-button.warn{background:linear-gradient(90deg,#f59e0b,#d97706)}
-button.green{background:linear-gradient(90deg,#16a34a,#15803d)}
-button.mini{width:auto;padding:5px 9px;font-size:11px;margin:2px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th,td{padding:8px;border-bottom:1px solid rgba(120,160,255,.1);text-align:left}
-th{color:#9fb3d9;font-weight:500;white-space:nowrap}
-.key{font-family:monospace;color:#7dd3fc;word-break:break-all;font-size:11px;max-width:120px;display:inline-block}
-.badge{display:inline-block;padding:2px 7px;border-radius:6px;font-size:10px;background:#1e293b;white-space:nowrap}
-.badge.ok{background:#14532d;color:#86efac}
-.badge.dead{background:#450a0a;color:#fca5a5}
-.badge.wait{background:#422006;color:#fbbf24}
-.badge.ban{background:#7f1d1d;color:#fca5a5}
-.badge.admin{background:#4c1d95;color:#ddd6fe}
+
+/* HEADER */
+.topbar{position:sticky;top:0;z-index:10;background:rgba(8,12,20,.85);backdrop-filter:blur(10px);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(120,160,255,.15)}
+.topbar h1{font-size:18px;font-weight:900;letter-spacing:2px;background:linear-gradient(90deg,#7dd3fc,#a78bfa);-webkit-background-clip:text;color:transparent}
+.user-pill{font-size:11px;background:rgba(120,160,255,.15);padding:4px 10px;border-radius:20px;border:1px solid rgba(120,160,255,.3)}
+
+/* CONTAINER */
+.container{max-width:600px;margin:0 auto;padding:16px;position:relative;z-index:1}
+
+/* CARDS */
+.card{background:rgba(20,28,45,.6);backdrop-filter:blur(12px);border:1px solid rgba(120,160,255,.15);border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.card h2{font-size:14px;color:#9fb3d9;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px}
+
+/* INPUTS */
+input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(120,160,255,.2);background:rgba(0,0,0,.3);color:#fff;font-size:15px;margin-bottom:10px;outline:none;transition:0.2s}
+input:focus,select:focus{border-color:#7dd3fc;box-shadow:0 0 0 3px rgba(125,211,252,.1)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+/* BUTTONS */
+button{width:100%;padding:12px;border-radius:10px;border:none;font-weight:600;font-size:14px;cursor:pointer;transition:0.2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-main{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff}
+.btn-main:active{transform:scale(0.98)}
+.btn-danger{background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff}
+.btn-green{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff}
+.btn-ghost{background:rgba(120,160,255,.1);color:#7dd3fc;border:1px solid rgba(120,160,255,.2)}
+.btn-mini{width:auto;padding:6px 12px;font-size:12px;border-radius:8px}
+
+/* KEY CARDS (Mobile Friendly) */
+.key-item{background:rgba(0,0,0,.25);border:1px solid rgba(120,160,255,.1);border-radius:12px;padding:12px;margin-bottom:10px;position:relative;overflow:hidden}
+.key-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.key-val{font-family:monospace;color:#7dd3fc;font-size:13px;font-weight:700;letter-spacing:0.5px;word-break:break-all}
+.badge{font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;text-transform:uppercase}
+.b-aktif{background:#14532d;color:#86efac}
+.b-beklemede{background:#422006;color:#fbbf24}
+.b-doldu{background:#450a0a;color:#fca5a5}
+.b-banli{background:#7f1d1d;color:#fecaca}
+.key-info{display:flex;gap:12px;font-size:11px;color:#9fb3d9;margin-bottom:10px}
+.key-actions{display:flex;gap:6px;flex-wrap:wrap}
+.key-actions button{flex:1;padding:8px;font-size:11px}
+
+/* USER CARDS */
+.user-item{background:rgba(0,0,0,.25);border:1px solid rgba(120,160,255,.1);border-radius:12px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.user-info h3{font-size:14px;margin-bottom:4px;color:#fff}
+.user-info p{font-size:11px;color:#9fb3d9}
+.user-actions{display:flex;flex-direction:column;gap:6px}
+.user-actions button{padding:6px 10px;font-size:11px;width:auto}
+
+/* MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.modal-content{background:#111827;width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:20px;max-height:85vh;overflow-y:auto;border-top:1px solid rgba(120,160,255,.2);animation:slideUp 0.3s ease-out}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(120,160,255,.1)}
+.modal-header h3{font-size:16px;color:#a5b4fc}
+.close-btn{background:rgba(255,255,255,.1);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer}
+
+/* BOTTOM NAV (Mobile App Style) */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(8,12,20,.95);backdrop-filter:blur(15px);border-top:1px solid rgba(120,160,255,.15);display:flex;justify-content:space-around;padding:10px 0 20px 0}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:4px;color:#6b7280;font-size:10px;cursor:pointer;transition:0.2s;flex:1}
+.nav-item.active{color:#7dd3fc}
+.nav-item i{font-size:20px;font-style:normal}
+
+/* TAB CONTENT */
+.tab-content{display:none;animation:fadeIn 0.3s}
+.tab-content.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
 .hidden{display:none!important}
-.msg{font-size:13px;margin-top:8px;color:#fca5a5;word-wrap:break-word}
+.msg{font-size:12px;margin-top:8px;color:#fca5a5;text-align:center}
 .msg.ok{color:#86efac}
-.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
-.tabs button{width:auto;padding:8px 12px;background:rgba(20,28,45,.7);border:1px solid rgba(120,160,255,.2);font-size:12px;flex:1;min-width:100px}
-.tabs button.active{background:linear-gradient(90deg,#2563eb,#7c3aed);border:none}
-.stat{background:rgba(20,28,45,.8);padding:12px 8px;border-radius:10px;text-align:center;border:1px solid rgba(120,160,255,.15)}
-.stat b{display:block;font-size:18px;color:#7dd3fc}
-.stat span{font-size:10px;color:#9fb3d9}
-.watermark{position:fixed;bottom:10px;right:14px;font-size:11px;color:#3b4b6b;z-index:3;letter-spacing:3px;font-weight:900;pointer-events:none}
-.footer{text-align:center;font-size:11px;color:#3b4b6b;margin-top:20px;letter-spacing:3px;font-weight:900}
-.scroll-x{overflow-x:auto;width:100%;-webkit-overflow-scrolling:touch;padding-bottom:5px}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
-.modal{background:#141c2d;border:1px solid rgba(120,160,255,.3);border-radius:12px;padding:18px;max-width:500px;width:100%;max-height:80vh;overflow-y:auto}
-@media(max-width:600px){
-  .grid,.grid3,.grid4{grid-template-columns:1fr}
-  h1{font-size:16px}
-  h2{font-size:13px}
-  .card{padding:12px}
-  table th:nth-child(2), table td:nth-child(2) { display: none; }
-  table th:nth-child(3), table td:nth-child(3) { display: none; }
-  .key{max-width:100px}
-  .tabs button{font-size:11px;padding:6px 8px;min-width:auto}
-  .stat b{font-size:16px}
-}
+.footer{text-align:center;font-size:10px;color:#374151;margin-top:20px;letter-spacing:3px;font-weight:900}
+
+@media(max-width:400px){.grid-3{grid-template-columns:1fr}.user-actions button{font-size:10px;padding:5px 8px}}
 </style></head>
 <body><canvas id="fx"></canvas>
-<div class="wrap">
-<header><h1>❄️ WROX KEY PANEL ❄️</h1>
-<div id="userBar" class="hidden">
-<span id="uname" style="margin-right:8px;font-size:13px"></span>
-<button class="mini" onclick="logout()">Çıkış</button></div></header>
 
-<div id="auth">
-<div class="card"><div class="grid">
-<div><h2>WROX Giriş</h2>
-<input id="l_u" placeholder="Kullanıcı adı">
-<input id="l_p" type="password" placeholder="Şifre">
-<button onclick="login()">WROX Giriş Yap</button></div>
-<div><h2>WROX Kayıt (davet kodu)</h2>
-<input id="r_u" placeholder="Kullanıcı adı">
-<input id="r_p" type="password" placeholder="Şifre">
-<input id="r_i" placeholder="Davet kodu (Wroxtanrıgibi)">
-<button onclick="register()">WROX Kayıt Ol</button></div>
-</div><div id="authMsg" class="msg"></div></div></div>
-
-<div id="panel" class="hidden">
-<div class="tabs">
-<button id="tabKeys" class="active" onclick="tab('keys')">🔑 Keyler</button>
-<button id="tabAdmin" class="hidden" onclick="tab('admin')">🛡️ Admin</button>
+<div class="topbar">
+  <h1>❄️ WROX</h1>
+  <div id="userBar" class="hidden">
+    <span id="uname" class="user-pill"></span>
+  </div>
 </div>
 
-<!-- KEYS -->
-<div id="vKeys">
-<div class="card"><h2>WROX Key Oluştur</h2>
-<div class="grid">
-<select id="k_type" onchange="toggleCustom()">
-<option value="dakika">Dakikalık</option><option value="saat">Saatlik</option>
-<option value="günlük">Günlük</option><option value="haftalık">Haftalık</option>
-<option value="aylık">Aylık</option><option value="sınırsız">Sınırsız</option>
-<option value="özel">Özel Süre</option>
-</select>
-<input id="k_count" type="number" value="1" min="1" max="200" placeholder="Adet">
-</div>
-<div id="customTime" class="grid3 hidden" style="margin-top:8px">
-<input id="k_d" type="number" placeholder="Gün" min="0" value="0">
-<input id="k_h" type="number" placeholder="Saat" min="0" value="0">
-<input id="k_m" type="number" placeholder="Dakika" min="0" value="0">
-</div>
-<div class="grid">
-<input id="k_dev" type="number" value="1" min="1" max="50" placeholder="Cihaz Sınırı">
-<input id="k_note" placeholder="Not (opsiyonel)">
-</div>
-<input id="k_pattern" placeholder="Format: WROX-{random8}-KEY (boş = rastgele)">
-<button onclick="createKey()">WROX Key Üret</button>
-<div id="newKeys" class="msg ok"></div></div>
+<div class="container">
+  <!-- AUTH -->
+  <div id="authTab">
+    <div class="card">
+      <h2>WROX Giriş</h2>
+      <input id="l_u" placeholder="Kullanıcı Adı">
+      <input id="l_p" type="password" placeholder="Şifre">
+      <button class="btn-main" onclick="login()">🚀 Giriş Yap</button>
+      <div id="authMsg" class="msg"></div>
+    </div>
+    <div class="card">
+      <h2>WROX Kayıt</h2>
+      <input id="r_u" placeholder="Kullanıcı Adı">
+      <input id="r_p" type="password" placeholder="Şifre">
+      <input id="r_i" placeholder="Davet Kodu (Wroxtanrıgibi)">
+      <button class="btn-ghost" onclick="register()">📝 Kayıt Ol</button>
+    </div>
+  </div>
 
-<div class="card"><h2>WROX Keylerim</h2>
-<div class="scroll-x"><table>
-<thead><tr><th>Key</th><th>Süre</th><th>Kalan</th><th>Cihaz</th><th>Durum</th><th>İşlem</th></tr></thead>
-<tbody id="kList"></tbody></table></div></div>
+  <!-- PANEL -->
+  <div id="mainPanel" class="hidden">
+    
+    <!-- KEYS TAB -->
+    <div id="tab-keys" class="tab-content active">
+      <div class="card">
+        <h2>Key Oluştur</h2>
+        <div class="grid-2">
+          <select id="k_type" onchange="toggleCustom()">
+            <option value="dakika">Dakikalık</option><option value="saat">Saatlik</option>
+            <option value="günlük">Günlük</option><option value="haftalık">Haftalık</option>
+            <option value="aylık">Aylık</option><option value="sınırsız">Sınırsız</option>
+            <option value="özel">Özel Süre</option>
+          </select>
+          <input id="k_count" type="number" value="1" min="1" placeholder="Adet">
+        </div>
+        <div id="customTime" class="grid-3 hidden">
+          <input id="k_d" type="number" placeholder="Gün" min="0" value="0">
+          <input id="k_h" type="number" placeholder="Saat" min="0" value="0">
+          <input id="k_m" type="number" placeholder="Dakika" min="0" value="0">
+        </div>
+        <div class="grid-2">
+          <input id="k_dev" type="number" value="1" min="1" placeholder="Cihaz Sınırı">
+          <input id="k_note" placeholder="Not (ops.)">
+        </div>
+        <input id="k_pattern" placeholder="Özel Format (WROX-{random8})">
+        <button class="btn-main" onclick="createKey()">🔑 Key Üret</button>
+        <div id="newKeys" class="msg ok"></div>
+      </div>
+      <div id="kList"></div>
+    </div>
+
+    <!-- ADMIN TAB -->
+    <div id="tab-admin" class="tab-content">
+      <div class="grid-3" style="margin-bottom:16px">
+        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:20px;color:#7dd3fc" id="s_users">-</h2><span style="font-size:10px;color:#9fb3d9">Kullanıcı</span></div>
+        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:20px;color:#7dd3fc" id="s_keys">-</h2><span style="font-size:10px;color:#9fb3d9">Key</span></div>
+        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:20px;color:#16a34a" id="s_active">-</h2><span style="font-size:10px;color:#9fb3d9">Aktif</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Davet Kodu Ekle</h2>
+        <div class="grid-2">
+          <input id="i_code" placeholder="Kod">
+          <input id="i_max" type="number" value="10" placeholder="Max">
+        </div>
+        <button class="btn-ghost" onclick="addInvite()">➕ Ekle</button>
+      </div>
+
+      <h2 style="font-size:14px;color:#9fb3d9;margin:16px 0 8px;text-transform:uppercase;letter-spacing:1px">Kullanıcılar</h2>
+      <div id="usrList"></div>
+    </div>
+
+  </div>
+  <div class="footer">WROX PANEL</div>
 </div>
 
-<!-- ADMIN -->
-<div id="vAdmin" class="hidden">
-<div class="grid4" style="margin-bottom:12px">
-<div class="stat"><b id="s_users">-</b><span>Kullanıcı</span></div>
-<div class="stat"><b id="s_banned_users">-</b><span>Banlı Kullanıcı</span></div>
-<div class="stat"><b id="s_keys">-</b><span>Key</span></div>
-<div class="stat"><b id="s_active">-</b><span>Aktif</span></div>
-<div class="stat"><b id="s_banned_keys">-</b><span>Banlı Key</span></div>
-<div class="stat"><b id="s_dev">-</b><span>Cihaz</span></div>
+<!-- BOTTOM NAV -->
+<div id="bottomNav" class="bottom-nav hidden">
+  <div class="nav-item active" id="nav-keys" onclick="switchTab('keys')">
+    <i>🔑</i><span>Keyler</span>
+  </div>
+  <div class="nav-item hidden" id="nav-admin" onclick="switchTab('admin')">
+    <i>🛡️</i><span>Admin</span>
+  </div>
+  <div class="nav-item" onclick="logout()">
+    <i>🚪</i><span>Çıkış</span>
+  </div>
 </div>
-
-<div class="card"><h2>WROX Kullanıcı Yönetimi</h2>
-<div class="scroll-x"><table>
-<thead><tr><th>ID</th><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>Key</th><th>İşlem</th></tr></thead>
-<tbody id="usrList"></tbody></table></div></div>
-
-<div class="card"><h2>WROX Davet Kodu Ekle</h2>
-<div class="grid">
-<input id="i_code" placeholder="Kod">
-<input id="i_max" type="number" value="10" min="1" placeholder="Maks kullanım">
-</div>
-<button onclick="addInvite()">WROX Ekle</button>
-<div id="invMsg" class="msg"></div></div>
-
-<div class="card"><h2>WROX Davet Kodları</h2>
-<div class="scroll-x"><table><thead><tr><th>Kod</th><th>Kullanım</th><th>Max</th><th>İşlem</th></tr></thead><tbody id="invList"></tbody></table></div></div>
-
-<div class="card"><h2>WROX Son Loglar</h2>
-<div class="scroll-x"><table><thead><tr><th>Aksiyon</th><th>Detay</th><th>IP</th></tr></thead><tbody id="logList"></tbody></table></div></div>
-</div>
-</div>
-<div class="footer">WROX KEY PANEL</div>
-</div>
-<div class="watermark">WROX</div>
 
 <script>
 const API=location.origin;
@@ -597,19 +458,14 @@ let token=localStorage.getItem('wrox_token'), isAdmin=false;
 const cv=document.getElementById('fx'),ctx=cv.getContext('2d');
 let W,H,ps=[];
 function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight;init();}
-function init(){ps=[];const n=Math.floor(W/18);for(let i=0;i<n;i++){const s=Math.random()>.5;ps.push({x:Math.random()*W,y:Math.random()*H,r:s?Math.random()*2+1:Math.random()*1.5+.5,vy:s?Math.random()*1+.5:Math.random()*6+6,vx:s?Math.random()*.6-.3:-1,s});}}
+function init(){ps=[];const n=Math.floor(W/20);for(let i=0;i<n;i++){const s=Math.random()>.5;ps.push({x:Math.random()*W,y:Math.random()*H,r:s?Math.random()*2+1:Math.random()*1.5+.5,vy:s?Math.random()*1+.5:Math.random()*6+6,vx:s?Math.random()*.6-.3:-1,s});}}
 function draw(){ctx.clearRect(0,0,W,H);for(const p of ps){if(p.s){ctx.fillStyle='rgba(220,235,255,.85)';ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();}else{ctx.strokeStyle='rgba(120,180,255,.45)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-2,p.y+12);ctx.stroke();}p.x+=p.vx;p.y+=p.vy;if(p.y>H){p.y=-10;p.x=Math.random()*W;}if(p.x<0)p.x=W;}requestAnimationFrame(draw);}
 addEventListener('resize',rs);rs();draw();
 
 async function api(p,o={}){
   o.headers=Object.assign({'Content-Type':'application/json'},o.headers||{});
   if(token)o.headers.Authorization='Bearer '+token;
-  try {
-    const r=await fetch(API+p,o);
-    return await r.json();
-  } catch(e) {
-    return {status:false, reason:'WROX: Sunucuya bağlanılamadı!'};
-  }
+  try{const r=await fetch(API+p,o);return await r.json();}catch(e){return {status:false,reason:'Bağlantı hatası'};}
 }
 function showMsg(el,m,ok){el.textContent=m;el.className='msg'+(ok?' ok':'');}
 function toggleCustom(){document.getElementById('customTime').classList.toggle('hidden',k_type.value!=='özel');}
@@ -633,7 +489,7 @@ async function createKey(){
   const body={type:k_type.value,count:k_count.value,pattern:k_pattern.value||undefined,note:k_note.value||undefined,max_devices:k_dev.value};
   if(k_type.value==='özel'){body.days=k_d.value;body.hours=k_h.value;body.minutes=k_m.value;}
   const d=await api('/api/key/create',{method:'POST',body:JSON.stringify(body)});
-  if(d.status){newKeys.innerHTML=d.keys.map(k=>'<div class="key">'+k+'</div>').join('');loadKeys();}
+  if(d.status){newKeys.innerHTML=d.keys.map(k=>'<div style="font-family:monospace;color:#7dd3fc;padding:4px 0">'+k+'</div>').join('');loadKeys();}
   else showMsg(newKeys,d.reason);
 }
 
@@ -644,151 +500,138 @@ function fmtTime(t){if(!t)return'-';const d=new Date(t*1000);return d.toLocaleDa
 async function loadKeys(){
   const d=await api('/api/key/list');if(!d.status)return;
   kList.innerHTML=d.keys.map(k=>{
-    let bc='wait',extra='';
-    if(k.is_banned){bc='ban';extra=' '+esc(k.ban_reason||'');}
-    else if(k.durum==='aktif'||k.durum==='sınırsız')bc='ok';
-    else if(k.durum==='doldu')bc='dead';
-    let btns='<button class="mini" onclick="viewDevices('+k.id+')">Cihazlar</button> ';
-    btns+='<button class="mini" onclick="extendKey('+k.id+')">Uzat</button> ';
-    btns+='<button class="mini" onclick="resetDev('+k.id+')">Sıfırla</button> ';
+    let bc='b-beklemede', extra='';
+    if(k.is_banned){bc='b-banli';extra=' '+esc(k.ban_reason||'');}
+    else if(k.durum==='AKTİF'||k.durum==='SINIRSIZ')bc='b-aktif';
+    else if(k.durum==='DOLDU')bc='b-doldu';
+    
+    let btns = `<button class="btn-ghost btn-mini" onclick="viewDevices(${k.id})">📱 Cihazlar</button>
+                <button class="btn-ghost btn-mini" onclick="extendKey(${k.id})">⏱️ Uzat</button>`;
     if(isAdmin){
-      if(k.is_banned) btns+='<button class="mini green" onclick="unbanKey('+k.id+')">Ban Aç</button> ';
-      else btns+='<button class="mini danger" onclick="banKey('+k.id+')">Banla</button> ';
+      btns += k.is_banned ? `<button class="btn-green btn-mini" onclick="keyAction(${k.id},'unban')">✅ Ban Aç</button>`
+                          : `<button class="btn-danger btn-mini" onclick="keyAction(${k.id},'ban')">🚫 Banla</button>`;
     }
-    btns+='<button class="mini danger" onclick="delKey('+k.id+')">Sil</button>';
-    return '<tr><td class="key">'+esc(k.key_value)+'</td><td>'+fmtDur(k.duration_seconds)+'</td><td>'+fmtSec(k.kalan)+'</td><td>'+k.devices.length+'/'+k.max_devices+'</td><td><span class="badge '+bc+'">'+k.durum+extra+'</span></td><td>'+btns+'</td></tr>';
+    btns += `<button class="btn-danger btn-mini" onclick="delKey(${k.id})">🗑️ Sil</button>`;
+
+    return `<div class="key-item">
+      <div class="key-top">
+        <span class="key-val">${esc(k.key_value)}</span>
+        <span class="badge ${bc}">${k.durum}${extra}</span>
+      </div>
+      <div class="key-info">
+        <span>⏳ ${fmtDur(k.duration_seconds)}</span>
+        <span>⌛ ${fmtSec(k.kalan)}</span>
+        <span>💻 ${k.devices.length}/${k.max_devices}</span>
+      </div>
+      <div class="key-actions">${btns}</div>
+    </div>`;
   }).join('');
 }
-async function delKey(id){if(!confirm('WROX: Key silinsin mi?'))return;const d=await api('/api/key/'+id,{method:'DELETE'});if(!d.status)alert(d.reason);loadKeys();}
-async function resetDev(id){if(!confirm('WROX: Cihazlar sıfırlansın mı?'))return;const d=await api('/api/key/'+id+'/reset-devices',{method:'POST'});alert(d.reason||'OK');loadKeys();}
+
+async function delKey(id){if(!confirm('Key silinsin mi?'))return;const d=await api('/api/key/'+id,{method:'DELETE'});if(!d.status)alert(d.reason);loadKeys();}
 async function extendKey(id){
-  const v=prompt('Kaç saat uzatılsın?','24');
-  if(!v)return;
+  const v=prompt('Kaç saat uzatılsın?','24');if(!v)return;
   const d=await api('/api/key/'+id+'/extend',{method:'POST',body:JSON.stringify({seconds:parseInt(v)*3600})});
-  alert(d.status?'Uzatıldı':'Hata: '+(d.reason||''));
+  alert(d.reason||'OK');loadKeys();
+}
+async function keyAction(id, act){
+  if(act==='ban'){
+    const r=prompt('Ban sebebi:','Kural ihlali');if(r===null)return;
+    await api('/api/key/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});
+  } else { await api('/api/key/'+id+'/unban',{method:'POST'}); }
   loadKeys();
-}
-async function banKey(id){
-  const r=prompt('Ban sebebi:','Kural ihlali');
-  if(r===null)return;
-  const d=await api('/api/key/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});
-  alert(d.reason||'OK');loadKeys();
-}
-async function unbanKey(id){
-  const d=await api('/api/key/'+id+'/unban',{method:'POST'});
-  alert(d.reason||'OK');loadKeys();
 }
 async function viewDevices(id){
   const d=await api('/api/key/'+id+'/devices');
   if(!d.status){alert(d.reason);return;}
-  let html='<h3 style="margin-bottom:10px">Cihazlar ('+d.devices.length+'/'+d.max+')</h3>';
-  if(d.devices.length===0) html+='<p style="color:#888">Henüz cihaz yok.</p>';
-  else html+='<div class="scroll-x"><table><thead><tr><th>HWID</th><th>IP</th><th>İlk</th><th>Son</th></tr></thead><tbody>'+
-    d.devices.map(x=>'<tr><td class="key">'+esc(x.hwid)+'</td><td>'+esc(x.ip||'-')+'</td><td>'+fmtTime(x.first_seen)+'</td><td>'+fmtTime(x.last_seen)+'</td></tr>').join('')+
-    '</tbody></table></div>';
-  html+='<button onclick="closeModal()" style="margin-top:12px">Kapat</button>';
+  let html=`<div class="modal-header"><h3>💻 Cihazlar (${d.devices.length}/${d.max})</h3><div class="close-btn" onclick="closeModal()">✕</div></div>`;
+  if(d.devices.length===0) html+='<p style="color:#888;text-align:center;padding:20px">Henüz cihaz yok.</p>';
+  else {
+    html+='<div style="display:flex;flex-direction:column;gap:10px">';
+    html+=d.devices.map(x=>`<div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px">
+      <div style="font-family:monospace;color:#7dd3fc;font-size:12px;word-break:break-all">${esc(x.hwid)}</div>
+      <div style="font-size:11px;color:#9fb3d9;margin-top:4px">IP: ${esc(x.ip||'-')} | Son: ${fmtTime(x.last_seen)}</div>
+    </div>`).join('');
+    html+='</div>';
+    html+=`<button class="btn-danger" style="margin-top:16px" onclick="resetDev(${id})">🚨 Tüm Cihazları Sıfırla</button>`;
+  }
   showModal(html);
 }
+async function resetDev(id){
+  if(!confirm('Tüm cihazlar sıfırlansın mı?'))return;
+  const d=await api('/api/key/'+id+'/reset-devices',{method:'POST'});
+  alert(d.reason||'OK');closeModal();loadKeys();
+}
 
-// ---- ADMIN ----
+// ADMIN
 async function loadAdmin(){
   const s=await api('/api/admin/stats');
-  if(s.status){s_users.textContent=s.users;s_banned_users.textContent=s.banned_users;s_keys.textContent=s.keys;s_active.textContent=s.active;s_banned_keys.textContent=s.banned_keys;s_dev.textContent=s.devices;}
-  await loadAdminUsers();
-  const i=await api('/api/admin/invites');
-  if(i.status)invList.innerHTML=i.invites.map(x=>'<tr><td class="key">'+esc(x.code)+'</td><td>'+x.used+'</td><td>'+x.max_uses+'</td><td><button class="mini danger" onclick="delInvite(\''+esc(x.code)+'\')">Sil</button></td></tr>').join('');
-  const l=await api('/api/admin/logs');
-  if(l.status)logList.innerHTML=l.logs.map(x=>'<tr><td>'+esc(x.action)+'</td><td style="font-size:11px">'+esc(x.detail||'')+'</td><td style="font-size:10px">'+esc(x.ip||'')+'</td></tr>').join('');
-}
-async function loadAdminUsers(){
+  if(s.status){s_users.textContent=s.users;s_keys.textContent=s.keys;s_active.textContent=s.active;}
   const u=await api('/api/admin/users');
-  if(!u.status)return;
-  usrList.innerHTML=u.users.map(x=>{
-    let role=x.is_admin?'<span class="badge admin">ADMIN</span>':'<span class="badge">USER</span>';
-    let durum=x.is_banned?'<span class="badge ban">BAN</span>':'<span class="badge ok">AKTİF</span>';
-    let btns='';
-    if(x.is_admin){
-      btns+='<button class="mini warn" onclick="demoteUser('+x.id+')">Admin Kaldır</button> ';
-    } else {
-      if(x.is_banned){
-        btns+='<button class="mini green" onclick="unbanUser('+x.id+')">Ban Aç</button> ';
-      } else {
-        btns+='<button class="mini danger" onclick="banUser('+x.id+')">Banla</button> ';
+  if(u.status){
+    usrList.innerHTML=u.users.map(x=>{
+      let role=x.is_admin?'<span class="badge b-aktif">ADMIN</span>':'<span style="font-size:10px;color:#888">USER</span>';
+      let st=x.is_banned?'<span class="badge b-banli">BAN</span>':'<span class="badge b-aktif">AKTİF</span>';
+      let btns='';
+      if(x.is_admin){ btns+=`<button class="btn-ghost btn-mini" onclick="userAction(${x.id},'remove-admin')">Admin Kaldır</button>`; }
+      else {
+        btns+= x.is_banned ? `<button class="btn-green btn-mini" onclick="userAction(${x.id},'unban')">Ban Aç</button>` 
+                           : `<button class="btn-danger btn-mini" onclick="userAction(${x.id},'ban')">Banla</button>`;
+        btns+=`<button class="btn-ghost btn-mini" onclick="userAction(${x.id},'make-admin')">Admin Yap</button>`;
+        btns+=`<button class="btn-danger btn-mini" onclick="userAction(${x.id},'delete')">Sil</button>`;
       }
-      btns+='<button class="mini" onclick="makeAdmin('+x.id+')">Admin Yap</button> ';
-      btns+='<button class="mini danger" onclick="delUser('+x.id+')">Sil</button> ';
-    }
-    btns+='<button class="mini" onclick="changePass('+x.id+')">Şifre</button>';
-    return '<tr><td>'+x.id+'</td><td>'+esc(x.username)+'</td><td>'+role+'</td><td>'+durum+(x.ban_reason?'<br><small style="color:#fca5a5">'+esc(x.ban_reason)+'</small>':'')+'</td><td>'+x.key_count+'</td><td>'+btns+'</td></tr>';
-  }).join('');
+      return `<div class="user-item">
+        <div class="user-info">
+          <h3>${esc(x.username)} ${role}</h3>
+          <p>${st} • ${x.key_count} Key</p>
+        </div>
+        <div class="user-actions">${btns}</div>
+      </div>`;
+    }).join('');
+  }
 }
-async function banUser(id){
-  const r=prompt('Ban sebebi:','Kural ihlali');
-  if(r===null)return;
-  const d=await api('/api/admin/user/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});
-  alert(d.reason||'OK');loadAdmin();
-}
-async function unbanUser(id){
-  const d=await api('/api/admin/user/'+id+'/unban',{method:'POST'});
-  alert(d.reason||'OK');loadAdmin();
-}
-async function delUser(id){
-  if(!confirm('WROX: Kullanıcı tamamen silinsin mi?'))return;
-  const d=await api('/api/admin/user/'+id+'/delete',{method:'DELETE'});
-  alert(d.reason||'OK');loadAdmin();
-}
-async function makeAdmin(id){
-  if(!confirm('WROX: Bu kullanıcı admin yapılsın mı?'))return;
-  const d=await api('/api/admin/user/'+id+'/make-admin',{method:'POST'});
-  alert(d.reason||'OK');loadAdmin();
-}
-async function demoteUser(id){
-  if(!confirm('WROX: Admin yetkisi kaldırılsın mı?'))return;
-  const d=await api('/api/admin/user/'+id+'/remove-admin',{method:'POST'});
-  alert(d.reason||'OK');loadAdmin();
-}
-async function changePass(id){
-  const p=prompt('Yeni şifre (min 4 karakter):');
-  if(!p)return;
-  const d=await api('/api/admin/user/'+id+'/password',{method:'POST',body:JSON.stringify({password:p})});
-  alert(d.reason||'OK');
-}
-async function addInvite(){
-  showMsg(invMsg,'Ekleniyor...',true);
-  const d=await api('/api/admin/invite',{method:'POST',body:JSON.stringify({code:i_code.value,max_uses:i_max.value})});
-  showMsg(invMsg,d.status?'WROX: Eklendi':d.reason,d.status);
-  if(d.status){i_code.value='';loadAdmin();}
-}
-async function delInvite(code){
-  if(!confirm('WROX: Davet silinsin mi?'))return;
-  await api('/api/admin/invite/'+encodeURIComponent(code),{method:'DELETE'});
+async function userAction(id, act){
+  if(act==='ban'){
+    const r=prompt('Ban sebebi:');if(r===null)return;
+    await api('/api/admin/user/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});
+  } else if(act==='delete'){
+    if(!confirm('Kullanıcı silinsin mi?'))return;
+    await api('/api/admin/user/'+id+'/delete',{method:'DELETE'});
+  } else {
+    await api('/api/admin/user/'+id+'/'+act,{method:'POST'});
+  }
   loadAdmin();
 }
+async function addInvite(){
+  const d=await api('/api/admin/invite',{method:'POST',body:JSON.stringify({code:i_code.value,max_uses:i_max.value})});
+  if(d.status){i_code.value='';alert('Eklendi');}else alert(d.reason);
+}
 
-// ---- UI ----
-function tab(t){
-  tabKeys.classList.toggle('active',t==='keys');
-  tabAdmin.classList.toggle('active',t==='admin');
-  vKeys.classList.toggle('hidden',t!=='keys');
-  vAdmin.classList.toggle('hidden',t!=='admin');
+// UI
+function switchTab(t){
+  document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  document.getElementById('nav-'+t).classList.add('active');
   if(t==='admin')loadAdmin(); else loadKeys();
 }
 function showModal(html){
-  const bg=document.createElement('div');
-  bg.className='modal-bg';bg.id='modalBg';
+  const bg=document.createElement('div');bg.className='modal-bg';bg.id='modalBg';
   bg.onclick=(e)=>{if(e.target===bg)closeModal();};
-  bg.innerHTML='<div class="modal">'+html+'</div>';
+  bg.innerHTML='<div class="modal-content">'+html+'</div>';
   document.body.appendChild(bg);
 }
-function closeModal(){
-  const m=document.getElementById('modalBg');
-  if(m)m.remove();
-}
+function closeModal(){const m=document.getElementById('modalBg');if(m)m.remove();}
+
 function showPanel(){
-  auth.classList.add('hidden');panel.classList.remove('hidden');userBar.classList.remove('hidden');
+  document.getElementById('authTab').classList.add('hidden');
+  document.getElementById('mainPanel').classList.remove('hidden');
+  document.getElementById('bottomNav').classList.remove('hidden');
+  document.getElementById('userBar').classList.remove('hidden');
+  
   const p=JSON.parse(atob(token.split('.')[1]));
-  uname.textContent='👤 '+p.username+(p.is_admin?' (WROX Admin)':'');
-  if(p.is_admin)tabAdmin.classList.remove('hidden');
+  uname.textContent=p.username;
+  if(p.is_admin){ isAdmin=true; document.getElementById('nav-admin').classList.remove('hidden'); }
   loadKeys();
 }
 if(token)showPanel();
