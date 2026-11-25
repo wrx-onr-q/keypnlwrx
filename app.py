@@ -8,10 +8,10 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 DATA_DIR = '/data' if os.path.isdir('/data') else os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(DATA_DIR, 'wrox.db')
+DB_PATH = os.path.join(DATA_DIR, 'wrox_final.db')
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'WROX_SECRET_DEGISTIR_2025')
-AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E' 
+JWT_SECRET = os.environ.get('JWT_SECRET', 'WROX_SECRET_2025')
+AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E'  # C++ İLE BİREBİR AYNI!
 ADMIN_USER = os.environ.get('ADMIN_USER', 'WROX')
 ADMIN_PASS = os.environ.get('ADMIN_PASS', 'Wroxtanrıgibi')
 
@@ -37,25 +37,23 @@ def init_db():
     db.execute('PRAGMA journal_mode=WAL')
     db.executescript('''
     CREATE TABLE IF NOT EXISTS users(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,password TEXT NOT NULL,
-      is_admin INTEGER DEFAULT 0,is_banned INTEGER DEFAULT 0,ban_reason TEXT,
-      invite_used TEXT,created_at INTEGER DEFAULT (strftime('%s','now')),last_login INTEGER
+      id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL, is_admin INTEGER DEFAULT 0, is_banned INTEGER DEFAULT 0,
+      ban_reason TEXT, invite_used TEXT, created_at INTEGER DEFAULT (strftime('%s','now')), last_login INTEGER
     );
     CREATE TABLE IF NOT EXISTS keys(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,key_value TEXT UNIQUE NOT NULL,
-      duration_seconds INTEGER NOT NULL,max_devices INTEGER DEFAULT 1,
-      created_at INTEGER DEFAULT (strftime('%s','now')),expires_at INTEGER,
-      activated_at INTEGER,created_by TEXT,note TEXT,
-      is_banned INTEGER DEFAULT 0,ban_reason TEXT
+      id INTEGER PRIMARY KEY AUTOINCREMENT, key_value TEXT UNIQUE NOT NULL,
+      duration_seconds INTEGER NOT NULL, max_devices INTEGER DEFAULT 9999,
+      created_at INTEGER DEFAULT (strftime('%s','now')), expires_at INTEGER,
+      activated_at INTEGER, created_by TEXT, note TEXT, is_banned INTEGER DEFAULT 0, ban_reason TEXT
     );
     CREATE TABLE IF NOT EXISTS key_devices(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,key_id INTEGER NOT NULL,hwid TEXT NOT NULL,ip TEXT,
-      first_seen INTEGER DEFAULT (strftime('%s','now')),last_seen INTEGER DEFAULT (strftime('%s','now')),
-      UNIQUE(key_id, hwid),FOREIGN KEY(key_id) REFERENCES keys(id) ON DELETE CASCADE
+      id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, hwid TEXT NOT NULL, ip TEXT,
+      first_seen INTEGER DEFAULT (strftime('%s','now')), last_seen INTEGER DEFAULT (strftime('%s','now')),
+      UNIQUE(key_id, hwid), FOREIGN KEY(key_id) REFERENCES keys(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS invite_codes(code TEXT PRIMARY KEY,max_uses INTEGER DEFAULT 1,used INTEGER DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,action TEXT,detail TEXT,ip TEXT,created_at INTEGER DEFAULT (strftime('%s','now')));
+    CREATE TABLE IF NOT EXISTS invite_codes(code TEXT PRIMARY KEY, max_uses INTEGER DEFAULT 1, used INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, detail TEXT, ip TEXT, created_at INTEGER DEFAULT (strftime('%s','now')));
     ''')
     db.execute("INSERT OR IGNORE INTO invite_codes(code,max_uses) VALUES(?,999999)",('Wroxtanrıgibi',))
     if not db.execute("SELECT id FROM users WHERE is_admin=1").fetchone():
@@ -70,16 +68,12 @@ def random_key(prefix='WROX'):
 def custom_key(p):
     return re.sub(r'\{random(\d+)?\}', lambda m: ''.join(secrets.choice(CHARS) for _ in range(int(m.group(1)) if m.group(1) else 6)), p)
 
-def log_action(db, a, d='', ip=''):
-    try: db.execute("INSERT INTO logs(action,detail,ip) VALUES(?,?,?)",(a,d or '',ip or ''))
-    except: pass
-
 def auth_required(f):
     @wraps(f)
     def w(*a,**k):
         t = (request.headers.get('Authorization') or '').replace('Bearer ','')
         try: request.user = jwt.decode(t, JWT_SECRET, algorithms=['HS256'])
-        except: return jsonify({'status':False,'reason':'WROX: Yetkisiz'}),401
+        except: return jsonify({'status':False,'reason':'Yetkisiz'}),401
         return f(*a,**k)
     return w
 
@@ -87,31 +81,29 @@ def admin_required(f):
     @wraps(f)
     @auth_required
     def w(*a,**k):
-        if not request.user.get('is_admin'): return jsonify({'status':False,'reason':'WROX: Admin değil'}),403
+        if not request.user.get('is_admin'): return jsonify({'status':False,'reason':'Admin değil'}),403
         return f(*a,**k)
     return w
 
-# ---------- API ROUTES ----------
 @app.route('/api/register',methods=['POST'])
 def register():
     d = request.json or {}; u,p,inv = d.get('username'),d.get('password'),d.get('invite')
-    if not u or not p or not inv: return jsonify({'status':False,'reason':'WROX: Eksik alan'})
+    if not u or not p or not inv: return jsonify({'status':False,'reason':'Eksik alan'})
     db = get_db(); r = db.execute("SELECT * FROM invite_codes WHERE code=?",(inv,)).fetchone()
-    if not r or r['used']>=r['max_uses']: return jsonify({'status':False,'reason':'WROX: Geçersiz davet'})
+    if not r or r['used']>=r['max_uses']: return jsonify({'status':False,'reason':'Geçersiz davet'})
     try:
         h = bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
         db.execute("INSERT INTO users(username,password,invite_used) VALUES(?,?,?)",(u,h,inv))
         db.execute("UPDATE invite_codes SET used=used+1 WHERE code=?",(inv,))
-        db.commit(); return jsonify({'status':True,'reason':'WROX: Kayıt başarılı'})
-    except sqlite3.IntegrityError: return jsonify({'status':False,'reason':'WROX: Kullanıcı var'})
+        db.commit(); return jsonify({'status':True,'reason':'Kayıt başarılı'})
+    except: return jsonify({'status':False,'reason':'Kullanıcı var'})
 
 @app.route('/api/login',methods=['POST'])
 def login():
     d = request.json or {}; db = get_db()
     u = db.execute("SELECT * FROM users WHERE username=?",(d.get('username'),)).fetchone()
-    if not u or not bcrypt.checkpw((d.get('password') or '').encode(),u['password'].encode()):
-        return jsonify({'status':False,'reason':'WROX: Hatalı bilgi'})
-    if u['is_banned']: return jsonify({'status':False,'reason':f"WROX: Banlısınız ({u['ban_reason']})"})
+    if not u or not bcrypt.checkpw((d.get('password') or '').encode(),u['password'].encode()): return jsonify({'status':False,'reason':'Hatalı bilgi'})
+    if u['is_banned']: return jsonify({'status':False,'reason':f"Banlısınız: {u['ban_reason']}"})
     db.execute("UPDATE users SET last_login=? WHERE id=?", (int(time.time()), u['id'])); db.commit()
     tok = jwt.encode({'id':u['id'],'username':u['username'],'is_admin':bool(u['is_admin']),'exp':int(time.time())+7*86400},JWT_SECRET,algorithm='HS256')
     return jsonify({'status':True,'token':tok,'username':u['username'],'is_admin':bool(u['is_admin'])})
@@ -120,13 +112,15 @@ def login():
 @auth_required
 def create_key():
     d = request.json or {}; t = d.get('type')
-    cnt = min(max(int(d.get('count') or 1),1),200); md = min(max(int(d.get('max_devices') or 1),1),50)
+    cnt = min(max(int(d.get('count') or 1),1),200)
+    # C++ HİÇBİR ZAMAN CİHAZ LİMİTİNE TAKILMASIN DİYE 9999
+    md = 9999
     pat, note = d.get('pattern'), d.get('note')
     if t=='özel':
         dur = int(d.get('days') or 0)*86400+int(d.get('hours') or 0)*3600+int(d.get('minutes') or 0)*60
-        if dur<=0: return jsonify({'status':False,'reason':'WROX: Süre girin'})
+        if dur<=0: return jsonify({'status':False,'reason':'Süre girin'})
     elif t in UNITS: dur = UNITS[t]
-    else: return jsonify({'status':False,'reason':'WROX: Geçersiz tür'})
+    else: return jsonify({'status':False,'reason':'Geçersiz tür'})
     db = get_db(); created = []
     for _ in range(cnt):
         kv = custom_key(pat) if pat else random_key()
@@ -157,17 +151,15 @@ def list_keys():
 @auth_required
 def delete_key(kid):
     db = get_db(); k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
-    if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    if not request.user.get('is_admin') and k['created_by']!=request.user['username']: return jsonify({'status':False,'reason':'WROX: Yetkisiz'})
+    if not k: return jsonify({'status':False,'reason':'Key yok'})
+    if not request.user.get('is_admin') and k['created_by']!=request.user['username']: return jsonify({'status':False,'reason':'Yetkisiz'})
     db.execute("DELETE FROM key_devices WHERE key_id=?",(kid,)); db.execute("DELETE FROM keys WHERE id=?",(kid,)); db.commit()
     return jsonify({'status':True})
 
 @app.route('/api/key/<int:kid>/reset-devices',methods=['POST'])
 @auth_required
 def reset_devices(kid):
-    db = get_db(); k = db.execute("SELECT * FROM keys WHERE id=?",(kid,)).fetchone()
-    if not k: return jsonify({'status':False,'reason':'WROX: Key yok'})
-    db.execute("DELETE FROM key_devices WHERE key_id=?",(kid,)); db.commit()
+    db = get_db(); db.execute("DELETE FROM key_devices WHERE key_id=?",(kid,)); db.commit()
     return jsonify({'status':True,'reason':'Cihazlar sıfırlandı'})
 
 @app.route('/api/key/<int:kid>/extend',methods=['POST'])
@@ -246,149 +238,123 @@ def admin_add_invite():
         return jsonify({'status':True,'reason':'Eklendi'})
     except: return jsonify({'status':False,'reason':'Zaten var'})
 
+# 🔥 C++ İLE %100 UYUMLU, CİHAZ LİMİTİ DERDİ YOK
 @app.route('/connect',methods=['POST', 'GET'])
 def connect():
     if request.method == 'GET': return jsonify({'status':False, 'reason':'WROX: Sadece POST kabul edilir.'})
+    
     user_key = request.form.get('user_key') or (request.json or {}).get('user_key')
     serial = request.form.get('serial') or (request.json or {}).get('serial') or 'unknown'
     game = request.form.get('game') or (request.json or {}).get('game') or 'PUBG'
     ip = request.remote_addr or ''
+    
     if not user_key: return jsonify({'status':False,'reason':'Eksik user_key'})
-    db = get_db(); k = db.execute("SELECT * FROM keys WHERE key_value=?",(user_key,)).fetchone()
+    
+    db = get_db()
+    k = db.execute("SELECT * FROM keys WHERE key_value=?",(user_key,)).fetchone()
     if not k: return jsonify({'status':False,'reason':'Key bulunamadı'})
     if k['is_banned']: return jsonify({'status':False,'reason':'Key banlı'})
+    
     now = int(time.time())
+    
+    # Cihaz kaydı (Hata vermez, sadece kaydeder)
     dev = db.execute("SELECT * FROM key_devices WHERE key_id=? AND hwid=?",(k['id'],serial)).fetchone()
     if not dev:
-        if db.execute("SELECT COUNT(*) c FROM key_devices WHERE key_id=?",(k['id'],)).fetchone()['c'] >= k['max_devices']:
-            return jsonify({'status':False,'reason':'Cihaz limiti dolu'})
         db.execute("INSERT INTO key_devices(key_id,hwid,ip) VALUES(?,?,?)",(k['id'],serial,ip))
-    else: db.execute("UPDATE key_devices SET last_seen=?, ip=? WHERE id=?",(now,ip,dev['id']))
+    else: 
+        db.execute("UPDATE key_devices SET last_seen=?, ip=? WHERE id=?",(now,ip,dev['id']))
+    
+    # İlk aktivasyon
     if not k['activated_at']:
         exp = None if k['duration_seconds']==0 else now+k['duration_seconds']
-        db.execute("UPDATE keys SET activated_at=?, expires_at=? WHERE id=?",(now,exp,k['id'])); k = dict(k); k['expires_at']=exp
+        db.execute("UPDATE keys SET activated_at=?, expires_at=? WHERE id=?",(now,exp,k['id']))
+        k = dict(k); k['expires_at']=exp
+    
+    # Süre kontrolü
     if k['expires_at'] is not None and now > k['expires_at']: return jsonify({'status':False,'reason':'Süre doldu'})
+    
+    # 🔥 C++'IN BEKLEDİĞİ MD5 TOKEN
     token = hashlib.md5(f'{game}-{user_key}-{serial}-{AUTH_SECRET}'.encode()).hexdigest()
-    db.commit(); return jsonify({'status':True,'data':{'token':token,'rng':now}})
+    db.commit()
+    
+    return jsonify({'status':True,'data':{'token':token,'rng':now}})
 
-# ---------- HTML/CSS/JS (MOBILE APP UI) ----------
+# ---------- VENOM VIP UI ----------
 HTML = r"""<!DOCTYPE html>
 <html lang="tr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>WROX Panel</title>
+<title>WROX VIP PANEL</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',sans-serif;-webkit-tap-highlight-color:transparent}
-body{min-height:100vh;background:#080c14;color:#e8eefc;overflow-x:hidden;padding-bottom:70px}
+body{min-height:100vh;background:#080808;color:#fff;overflow-x:hidden;padding-bottom:70px}
 #fx{position:fixed;inset:0;pointer-events:none;z-index:0}
-
-/* HEADER */
-.topbar{position:sticky;top:0;z-index:10;background:rgba(8,12,20,.85);backdrop-filter:blur(10px);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(120,160,255,.15)}
-.topbar h1{font-size:18px;font-weight:900;letter-spacing:2px;background:linear-gradient(90deg,#7dd3fc,#a78bfa);-webkit-background-clip:text;color:transparent}
-.user-pill{font-size:11px;background:rgba(120,160,255,.15);padding:4px 10px;border-radius:20px;border:1px solid rgba(120,160,255,.3)}
-
-/* CONTAINER */
+.topbar{position:sticky;top:0;z-index:10;background:rgba(8,8,8,.9);backdrop-filter:blur(10px);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(220,38,38,.4);box-shadow:0 4px 15px rgba(220,38,38,0.1)}
+.topbar h1{font-size:20px;font-weight:900;letter-spacing:3px;color:#dc2626;text-shadow:0 0 10px rgba(220,38,38,0.6)}
+.user-pill{font-size:11px;background:rgba(220,38,38,.15);padding:4px 10px;border-radius:20px;border:1px solid rgba(220,38,38,.3);color:#fca5a5}
 .container{max-width:600px;margin:0 auto;padding:16px;position:relative;z-index:1}
-
-/* CARDS */
-.card{background:rgba(20,28,45,.6);backdrop-filter:blur(12px);border:1px solid rgba(120,160,255,.15);border-radius:16px;padding:16px;margin-bottom:16px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
-.card h2{font-size:14px;color:#9fb3d9;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px}
-
-/* INPUTS */
-input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(120,160,255,.2);background:rgba(0,0,0,.3);color:#fff;font-size:15px;margin-bottom:10px;outline:none;transition:0.2s}
-input:focus,select:focus{border-color:#7dd3fc;box-shadow:0 0 0 3px rgba(125,211,252,.1)}
+.card{background:rgba(20,20,20,.7);backdrop-filter:blur(12px);border:1px solid rgba(220,38,38,.2);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+.card h2{font-size:13px;color:#fca5a5;margin-bottom:14px;text-transform:uppercase;letter-spacing:1px;text-shadow:0 0 5px rgba(220,38,38,0.4)}
+input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(220,38,38,.3);background:rgba(0,0,0,.6);color:#fff;font-size:15px;margin-bottom:10px;outline:none;transition:0.2s}
+input:focus,select:focus{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.2)}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-
-/* BUTTONS */
-button{width:100%;padding:12px;border-radius:10px;border:none;font-weight:600;font-size:14px;cursor:pointer;transition:0.2s;display:flex;align-items:center;justify-content:center;gap:6px}
-.btn-main{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff}
+button{width:100%;padding:14px;border-radius:10px;border:none;font-weight:700;font-size:14px;cursor:pointer;transition:0.2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-main{background:linear-gradient(135deg,#dc2626,#7f1d1d);color:#fff;box-shadow:0 4px 15px rgba(220,38,38,0.4)}
 .btn-main:active{transform:scale(0.98)}
-.btn-danger{background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff}
-.btn-green{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff}
-.btn-ghost{background:rgba(120,160,255,.1);color:#7dd3fc;border:1px solid rgba(120,160,255,.2)}
-.btn-mini{width:auto;padding:6px 12px;font-size:12px;border-radius:8px}
-
-/* KEY CARDS (Mobile Friendly) */
-.key-item{background:rgba(0,0,0,.25);border:1px solid rgba(120,160,255,.1);border-radius:12px;padding:12px;margin-bottom:10px;position:relative;overflow:hidden}
-.key-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.key-val{font-family:monospace;color:#7dd3fc;font-size:13px;font-weight:700;letter-spacing:0.5px;word-break:break-all}
-.badge{font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;text-transform:uppercase}
-.b-aktif{background:#14532d;color:#86efac}
-.b-beklemede{background:#422006;color:#fbbf24}
-.b-doldu{background:#450a0a;color:#fca5a5}
-.b-banli{background:#7f1d1d;color:#fecaca}
-.key-info{display:flex;gap:12px;font-size:11px;color:#9fb3d9;margin-bottom:10px}
-.key-actions{display:flex;gap:6px;flex-wrap:wrap}
+.btn-ghost{background:rgba(220,38,38,.1);color:#fca5a5;border:1px solid rgba(220,38,38,.4)}
+.btn-mini{width:auto;padding:8px 12px;font-size:12px;border-radius:8px;font-weight:600}
+.key-item{background:rgba(0,0,0,.6);border:1px solid rgba(220,38,38,.2);border-radius:14px;padding:14px;margin-bottom:12px;position:relative;overflow:hidden}
+.key-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.key-val{font-family:monospace;color:#fca5a5;font-size:13px;font-weight:700;letter-spacing:0.5px;word-break:break-all}
+.badge{font-size:10px;padding:4px 8px;border-radius:6px;font-weight:800;text-transform:uppercase}
+.b-aktif{background:#450a0a;color:#fca5a5;border:1px solid #dc2626;box-shadow:0 0 8px rgba(220,38,38,0.5)}
+.b-beklemede{background:#422006;color:#fbbf24;border:1px solid #d97706}
+.b-doldu{background:#1f2937;color:#9ca3af;border:1px solid #4b5563}
+.b-banli{background:#7f1d1d;color:#fecaca;border:1px solid #ef4444}
+.key-info{display:flex;gap:12px;font-size:12px;color:#9ca3af;margin-bottom:12px;font-weight:500}
+.key-actions{display:flex;gap:8px;flex-wrap:wrap}
 .key-actions button{flex:1;padding:8px;font-size:11px}
-
-/* USER CARDS */
-.user-item{background:rgba(0,0,0,.25);border:1px solid rgba(120,160,255,.1);border-radius:12px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
-.user-info h3{font-size:14px;margin-bottom:4px;color:#fff}
-.user-info p{font-size:11px;color:#9fb3d9}
-.user-actions{display:flex;flex-direction:column;gap:6px}
-.user-actions button{padding:6px 10px;font-size:11px;width:auto}
-
-/* MODAL */
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:flex-end;justify-content:center}
-.modal-content{background:#111827;width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:20px;max-height:85vh;overflow-y:auto;border-top:1px solid rgba(120,160,255,.2);animation:slideUp 0.3s ease-out}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(8,8,8,.95);backdrop-filter:blur(15px);border-top:1px solid rgba(220,38,38,.4);display:flex;justify-content:space-around;padding:10px 0 20px 0}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:4px;color:#6b7280;font-size:10px;font-weight:600;cursor:pointer;transition:0.2s;flex:1}
+.nav-item.active{color:#dc2626;text-shadow:0 0 10px rgba(220,38,38,0.8)}
+.nav-item i{font-size:22px;font-style:normal}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.9);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.modal-content{background:#111;width:100%;max-width:600px;border-radius:20px 20px 0 0;padding:20px;max-height:85vh;overflow-y:auto;border-top:2px solid #dc2626;animation:slideUp 0.3s ease-out}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(120,160,255,.1)}
-.modal-header h3{font-size:16px;color:#a5b4fc}
-.close-btn{background:rgba(255,255,255,.1);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer}
-
-/* BOTTOM NAV (Mobile App Style) */
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(8,12,20,.95);backdrop-filter:blur(15px);border-top:1px solid rgba(120,160,255,.15);display:flex;justify-content:space-around;padding:10px 0 20px 0}
-.nav-item{display:flex;flex-direction:column;align-items:center;gap:4px;color:#6b7280;font-size:10px;cursor:pointer;transition:0.2s;flex:1}
-.nav-item.active{color:#7dd3fc}
-.nav-item i{font-size:20px;font-style:normal}
-
-/* TAB CONTENT */
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(220,38,38,.3)}
+.modal-header h3{font-size:16px;color:#fca5a5;text-shadow:0 0 5px rgba(220,38,38,0.5)}
+.close-btn{background:rgba(255,255,255,.1);width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff}
 .tab-content{display:none;animation:fadeIn 0.3s}
 .tab-content.active{display:block}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-
 .hidden{display:none!important}
-.msg{font-size:12px;margin-top:8px;color:#fca5a5;text-align:center}
+.msg{font-size:12px;margin-top:8px;color:#fca5a5;text-align:center;font-weight:600}
 .msg.ok{color:#86efac}
-.footer{text-align:center;font-size:10px;color:#374151;margin-top:20px;letter-spacing:3px;font-weight:900}
-
-@media(max-width:400px){.grid-3{grid-template-columns:1fr}.user-actions button{font-size:10px;padding:5px 8px}}
+.footer{text-align:center;font-size:10px;color:#374151;margin-top:30px;letter-spacing:4px;font-weight:900}
+.user-item{background:rgba(0,0,0,.6);border:1px solid rgba(220,38,38,.2);border-radius:12px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.user-info h3{font-size:14px;margin-bottom:4px;color:#fff}
+.user-info p{font-size:11px;color:#9ca3af}
+.user-actions{display:flex;flex-direction:column;gap:6px}
+.user-actions button{padding:6px 10px;font-size:11px;width:auto}
+@media(max-width:400px){.grid-3{grid-template-columns:1fr}}
 </style></head>
 <body><canvas id="fx"></canvas>
-
-<div class="topbar">
-  <h1>❄️ WROX</h1>
-  <div id="userBar" class="hidden">
-    <span id="uname" class="user-pill"></span>
-  </div>
-</div>
-
+<div class="topbar"><h1>WROX VIP</h1><div id="userBar" class="hidden"><span id="uname" class="user-pill"></span></div></div>
 <div class="container">
-  <!-- AUTH -->
   <div id="authTab">
-    <div class="card">
-      <h2>WROX Giriş</h2>
-      <input id="l_u" placeholder="Kullanıcı Adı">
-      <input id="l_p" type="password" placeholder="Şifre">
-      <button class="btn-main" onclick="login()">🚀 Giriş Yap</button>
-      <div id="authMsg" class="msg"></div>
+    <div class="card"><h2>Giriş</h2>
+      <input id="l_u" placeholder="Kullanıcı Adı"><input id="l_p" type="password" placeholder="Şifre">
+      <button class="btn-main" onclick="login()">🚀 Giriş Yap</button><div id="authMsg" class="msg"></div>
     </div>
-    <div class="card">
-      <h2>WROX Kayıt</h2>
-      <input id="r_u" placeholder="Kullanıcı Adı">
-      <input id="r_p" type="password" placeholder="Şifre">
+    <div class="card"><h2>Kayıt</h2>
+      <input id="r_u" placeholder="Kullanıcı Adı"><input id="r_p" type="password" placeholder="Şifre">
       <input id="r_i" placeholder="Davet Kodu (Wroxtanrıgibi)">
       <button class="btn-ghost" onclick="register()">📝 Kayıt Ol</button>
     </div>
   </div>
-
-  <!-- PANEL -->
   <div id="mainPanel" class="hidden">
-    
-    <!-- KEYS TAB -->
     <div id="tab-keys" class="tab-content active">
-      <div class="card">
-        <h2>Key Oluştur</h2>
+      <div class="card"><h2>Key Oluştur</h2>
         <div class="grid-2">
           <select id="k_type" onchange="toggleCustom()">
             <option value="dakika">Dakikalık</option><option value="saat">Saatlik</option>
@@ -403,237 +369,66 @@ button{width:100%;padding:12px;border-radius:10px;border:none;font-weight:600;fo
           <input id="k_h" type="number" placeholder="Saat" min="0" value="0">
           <input id="k_m" type="number" placeholder="Dakika" min="0" value="0">
         </div>
-        <div class="grid-2">
-          <input id="k_dev" type="number" value="1" min="1" placeholder="Cihaz Sınırı">
-          <input id="k_note" placeholder="Not (ops.)">
-        </div>
         <input id="k_pattern" placeholder="Özel Format (WROX-{random8})">
-        <button class="btn-main" onclick="createKey()">🔑 Key Üret</button>
-        <div id="newKeys" class="msg ok"></div>
+        <input id="k_note" placeholder="Not (opsiyonel)">
+        <button class="btn-main" onclick="createKey()">🔑 Key Üret</button><div id="newKeys" class="msg ok"></div>
       </div>
       <div id="kList"></div>
     </div>
-
-    <!-- ADMIN TAB -->
     <div id="tab-admin" class="tab-content">
       <div class="grid-3" style="margin-bottom:16px">
-        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:20px;color:#7dd3fc" id="s_users">-</h2><span style="font-size:10px;color:#9fb3d9">Kullanıcı</span></div>
-        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:20px;color:#7dd3fc" id="s_keys">-</h2><span style="font-size:10px;color:#9fb3d9">Key</span></div>
-        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:20px;color:#16a34a" id="s_active">-</h2><span style="font-size:10px;color:#9fb3d9">Aktif</span></div>
+        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:22px;color:#dc2626" id="s_users">-</h2><span style="font-size:10px;color:#9ca3af">Kullanıcı</span></div>
+        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:22px;color:#dc2626" id="s_keys">-</h2><span style="font-size:10px;color:#9ca3af">Key</span></div>
+        <div class="card" style="text-align:center;padding:12px"><h2 style="margin:0;font-size:22px;color:#dc2626" id="s_active">-</h2><span style="font-size:10px;color:#9ca3af">Aktif</span></div>
       </div>
-
-      <div class="card">
-        <h2>Davet Kodu Ekle</h2>
-        <div class="grid-2">
-          <input id="i_code" placeholder="Kod">
-          <input id="i_max" type="number" value="10" placeholder="Max">
-        </div>
+      <div class="card"><h2>Davet Kodu Ekle</h2>
+        <div class="grid-2"><input id="i_code" placeholder="Kod"><input id="i_max" type="number" value="10" placeholder="Max"></div>
         <button class="btn-ghost" onclick="addInvite()">➕ Ekle</button>
       </div>
-
-      <h2 style="font-size:14px;color:#9fb3d9;margin:16px 0 8px;text-transform:uppercase;letter-spacing:1px">Kullanıcılar</h2>
+      <h2 style="font-size:14px;color:#fca5a5;margin:16px 0 8px;text-transform:uppercase;letter-spacing:1px">Kullanıcılar</h2>
       <div id="usrList"></div>
     </div>
-
   </div>
-  <div class="footer">WROX PANEL</div>
+  <div class="footer">WROX VIP PANEL</div>
 </div>
-
-<!-- BOTTOM NAV -->
 <div id="bottomNav" class="bottom-nav hidden">
-  <div class="nav-item active" id="nav-keys" onclick="switchTab('keys')">
-    <i>🔑</i><span>Keyler</span>
-  </div>
-  <div class="nav-item hidden" id="nav-admin" onclick="switchTab('admin')">
-    <i>🛡️</i><span>Admin</span>
-  </div>
-  <div class="nav-item" onclick="logout()">
-    <i>🚪</i><span>Çıkış</span>
-  </div>
+  <div class="nav-item active" id="nav-keys" onclick="switchTab('keys')"><i>🔑</i><span>KEYLER</span></div>
+  <div class="nav-item hidden" id="nav-admin" onclick="switchTab('admin')"><i>🛡️</i><span>ADMİN</span></div>
+  <div class="nav-item" onclick="logout()"><i>🚪</i><span>ÇIKIŞ</span></div>
 </div>
-
 <script>
 const API=location.origin;
 let token=localStorage.getItem('wrox_token'), isAdmin=false;
 const cv=document.getElementById('fx'),ctx=cv.getContext('2d');
 let W,H,ps=[];
 function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight;init();}
-function init(){ps=[];const n=Math.floor(W/20);for(let i=0;i<n;i++){const s=Math.random()>.5;ps.push({x:Math.random()*W,y:Math.random()*H,r:s?Math.random()*2+1:Math.random()*1.5+.5,vy:s?Math.random()*1+.5:Math.random()*6+6,vx:s?Math.random()*.6-.3:-1,s});}}
-function draw(){ctx.clearRect(0,0,W,H);for(const p of ps){if(p.s){ctx.fillStyle='rgba(220,235,255,.85)';ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();}else{ctx.strokeStyle='rgba(120,180,255,.45)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-2,p.y+12);ctx.stroke();}p.x+=p.vx;p.y+=p.vy;if(p.y>H){p.y=-10;p.x=Math.random()*W;}if(p.x<0)p.x=W;}requestAnimationFrame(draw);}
+function init(){ps=[];const n=Math.floor(W/18);for(let i=0;i<n;i++){const s=Math.random()>.5;ps.push({x:Math.random()*W,y:Math.random()*H,r:s?Math.random()*2+1:Math.random()*1.5+.5,vy:s?Math.random()*1+.5:Math.random()*6+6,vx:s?Math.random()*.6-.3:-1,s});}}
+function draw(){ctx.clearRect(0,0,W,H);for(const p of ps){if(p.s){ctx.fillStyle='rgba(220,235,255,.6)';ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();}else{ctx.strokeStyle='rgba(220,38,38,.5)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x-2,p.y+12);ctx.stroke();}p.x+=p.vx;p.y+=p.vy;if(p.y>H){p.y=-10;p.x=Math.random()*W;}if(p.x<0)p.x=W;}requestAnimationFrame(draw);}
 addEventListener('resize',rs);rs();draw();
-
-async function api(p,o={}){
-  o.headers=Object.assign({'Content-Type':'application/json'},o.headers||{});
-  if(token)o.headers.Authorization='Bearer '+token;
-  try{const r=await fetch(API+p,o);return await r.json();}catch(e){return {status:false,reason:'Bağlantı hatası'};}
-}
+async function api(p,o={}){o.headers=Object.assign({'Content-Type':'application/json'},o.headers||{});if(token)o.headers.Authorization='Bearer '+token;try{const r=await fetch(API+p,o);return await r.json();}catch(e){return {status:false,reason:'Bağlantı hatası'};}}
 function showMsg(el,m,ok){el.textContent=m;el.className='msg'+(ok?' ok':'');}
 function toggleCustom(){document.getElementById('customTime').classList.toggle('hidden',k_type.value!=='özel');}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-
-async function login(){
-  showMsg(authMsg,'Bağlanıyor...',true);
-  const d=await api('/api/login',{method:'POST',body:JSON.stringify({username:l_u.value,password:l_p.value})});
-  if(d.status){token=d.token;isAdmin=d.is_admin;localStorage.setItem('wrox_token',token);showPanel();}
-  else showMsg(authMsg,d.reason);
-}
-async function register(){
-  showMsg(authMsg,'Kayıt olunuyor...',true);
-  const d=await api('/api/register',{method:'POST',body:JSON.stringify({username:r_u.value,password:r_p.value,invite:r_i.value})});
-  showMsg(authMsg,d.reason,d.status);
-}
+async function login(){showMsg(authMsg,'Bağlanıyor...',true);const d=await api('/api/login',{method:'POST',body:JSON.stringify({username:l_u.value,password:l_p.value})});if(d.status){token=d.token;isAdmin=d.is_admin;localStorage.setItem('wrox_token',token);showPanel();}else showMsg(authMsg,d.reason);}
+async function register(){showMsg(authMsg,'Kayıt olunuyor...',true);const d=await api('/api/register',{method:'POST',body:JSON.stringify({username:r_u.value,password:r_p.value,invite:r_i.value})});showMsg(authMsg,d.reason,d.status);}
 function logout(){token=null;localStorage.removeItem('wrox_token');location.reload();}
-
-async function createKey(){
-  showMsg(newKeys,'Oluşturuluyor...',true);
-  const body={type:k_type.value,count:k_count.value,pattern:k_pattern.value||undefined,note:k_note.value||undefined,max_devices:k_dev.value};
-  if(k_type.value==='özel'){body.days=k_d.value;body.hours=k_h.value;body.minutes=k_m.value;}
-  const d=await api('/api/key/create',{method:'POST',body:JSON.stringify(body)});
-  if(d.status){newKeys.innerHTML=d.keys.map(k=>'<div style="font-family:monospace;color:#7dd3fc;padding:4px 0">'+k+'</div>').join('');loadKeys();}
-  else showMsg(newKeys,d.reason);
-}
-
+async function createKey(){showMsg(newKeys,'Oluşturuluyor...',true);const body={type:k_type.value,count:k_count.value,pattern:k_pattern.value||undefined,note:k_note.value||undefined};if(k_type.value==='özel'){body.days=k_d.value;body.hours=k_h.value;body.minutes=k_m.value;}const d=await api('/api/key/create',{method:'POST',body:JSON.stringify(body)});if(d.status){newKeys.innerHTML=d.keys.map(k=>'<div style="font-family:monospace;color:#fca5a5;padding:4px 0;font-size:14px">'+k+'</div>').join('');loadKeys();}else showMsg(newKeys,d.reason);}
 function fmtSec(s){if(s==='∞')return'∞';s=+s;if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'dk';if(s<86400)return Math.floor(s/3600)+'sa';return Math.floor(s/86400)+'g';}
 function fmtDur(s){if(s===0)return'∞';return fmtSec(s);}
 function fmtTime(t){if(!t)return'-';const d=new Date(t*1000);return d.toLocaleDateString('tr-TR')+' '+d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});}
-
-async function loadKeys(){
-  const d=await api('/api/key/list');if(!d.status)return;
-  kList.innerHTML=d.keys.map(k=>{
-    let bc='b-beklemede', extra='';
-    if(k.is_banned){bc='b-banli';extra=' '+esc(k.ban_reason||'');}
-    else if(k.durum==='AKTİF'||k.durum==='SINIRSIZ')bc='b-aktif';
-    else if(k.durum==='DOLDU')bc='b-doldu';
-    
-    let btns = `<button class="btn-ghost btn-mini" onclick="viewDevices(${k.id})">📱 Cihazlar</button>
-                <button class="btn-ghost btn-mini" onclick="extendKey(${k.id})">⏱️ Uzat</button>`;
-    if(isAdmin){
-      btns += k.is_banned ? `<button class="btn-green btn-mini" onclick="keyAction(${k.id},'unban')">✅ Ban Aç</button>`
-                          : `<button class="btn-danger btn-mini" onclick="keyAction(${k.id},'ban')">🚫 Banla</button>`;
-    }
-    btns += `<button class="btn-danger btn-mini" onclick="delKey(${k.id})">🗑️ Sil</button>`;
-
-    return `<div class="key-item">
-      <div class="key-top">
-        <span class="key-val">${esc(k.key_value)}</span>
-        <span class="badge ${bc}">${k.durum}${extra}</span>
-      </div>
-      <div class="key-info">
-        <span>⏳ ${fmtDur(k.duration_seconds)}</span>
-        <span>⌛ ${fmtSec(k.kalan)}</span>
-        <span>💻 ${k.devices.length}/${k.max_devices}</span>
-      </div>
-      <div class="key-actions">${btns}</div>
-    </div>`;
-  }).join('');
-}
-
+async function loadKeys(){const d=await api('/api/key/list');if(!d.status)return;kList.innerHTML=d.keys.map(k=>{let bc='b-beklemede', extra='';if(k.is_banned){bc='b-banli';extra=' '+esc(k.ban_reason||'');}else if(k.durum==='AKTİF'||k.durum==='SINIRSIZ')bc='b-aktif';else if(k.durum==='DOLDU')bc='b-doldu';let btns=`<button class="btn-ghost btn-mini" onclick="viewDevices(${k.id})">📱 Cihazlar</button><button class="btn-ghost btn-mini" onclick="extendKey(${k.id})">⏱️ Uzat</button>`;if(isAdmin){btns+=k.is_banned?`<button class="btn-main btn-mini" style="background:#16a34a" onclick="keyAction(${k.id},'unban')">✅ Ban Aç</button>`:`<button class="btn-main btn-mini" style="background:#7f1d1d" onclick="keyAction(${k.id},'ban')">🚫 Banla</button>`;}btns+=`<button class="btn-main btn-mini" style="background:#dc2626" onclick="delKey(${k.id})">🗑️ Sil</button>`;return `<div class="key-item"><div class="key-top"><span class="key-val">${esc(k.key_value)}</span><span class="badge ${bc}">${k.durum}${extra}</span></div><div class="key-info"><span>⏳ ${fmtDur(k.duration_seconds)}</span><span>⌛ ${fmtSec(k.kalan)}</span><span>💻 ${k.devices.length}</span></div><div class="key-actions">${btns}</div></div>`;}).join('');}
 async function delKey(id){if(!confirm('Key silinsin mi?'))return;const d=await api('/api/key/'+id,{method:'DELETE'});if(!d.status)alert(d.reason);loadKeys();}
-async function extendKey(id){
-  const v=prompt('Kaç saat uzatılsın?','24');if(!v)return;
-  const d=await api('/api/key/'+id+'/extend',{method:'POST',body:JSON.stringify({seconds:parseInt(v)*3600})});
-  alert(d.reason||'OK');loadKeys();
-}
-async function keyAction(id, act){
-  if(act==='ban'){
-    const r=prompt('Ban sebebi:','Kural ihlali');if(r===null)return;
-    await api('/api/key/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});
-  } else { await api('/api/key/'+id+'/unban',{method:'POST'}); }
-  loadKeys();
-}
-async function viewDevices(id){
-  const d=await api('/api/key/'+id+'/devices');
-  if(!d.status){alert(d.reason);return;}
-  let html=`<div class="modal-header"><h3>💻 Cihazlar (${d.devices.length}/${d.max})</h3><div class="close-btn" onclick="closeModal()">✕</div></div>`;
-  if(d.devices.length===0) html+='<p style="color:#888;text-align:center;padding:20px">Henüz cihaz yok.</p>';
-  else {
-    html+='<div style="display:flex;flex-direction:column;gap:10px">';
-    html+=d.devices.map(x=>`<div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px">
-      <div style="font-family:monospace;color:#7dd3fc;font-size:12px;word-break:break-all">${esc(x.hwid)}</div>
-      <div style="font-size:11px;color:#9fb3d9;margin-top:4px">IP: ${esc(x.ip||'-')} | Son: ${fmtTime(x.last_seen)}</div>
-    </div>`).join('');
-    html+='</div>';
-    html+=`<button class="btn-danger" style="margin-top:16px" onclick="resetDev(${id})">🚨 Tüm Cihazları Sıfırla</button>`;
-  }
-  showModal(html);
-}
-async function resetDev(id){
-  if(!confirm('Tüm cihazlar sıfırlansın mı?'))return;
-  const d=await api('/api/key/'+id+'/reset-devices',{method:'POST'});
-  alert(d.reason||'OK');closeModal();loadKeys();
-}
-
-// ADMIN
-async function loadAdmin(){
-  const s=await api('/api/admin/stats');
-  if(s.status){s_users.textContent=s.users;s_keys.textContent=s.keys;s_active.textContent=s.active;}
-  const u=await api('/api/admin/users');
-  if(u.status){
-    usrList.innerHTML=u.users.map(x=>{
-      let role=x.is_admin?'<span class="badge b-aktif">ADMIN</span>':'<span style="font-size:10px;color:#888">USER</span>';
-      let st=x.is_banned?'<span class="badge b-banli">BAN</span>':'<span class="badge b-aktif">AKTİF</span>';
-      let btns='';
-      if(x.is_admin){ btns+=`<button class="btn-ghost btn-mini" onclick="userAction(${x.id},'remove-admin')">Admin Kaldır</button>`; }
-      else {
-        btns+= x.is_banned ? `<button class="btn-green btn-mini" onclick="userAction(${x.id},'unban')">Ban Aç</button>` 
-                           : `<button class="btn-danger btn-mini" onclick="userAction(${x.id},'ban')">Banla</button>`;
-        btns+=`<button class="btn-ghost btn-mini" onclick="userAction(${x.id},'make-admin')">Admin Yap</button>`;
-        btns+=`<button class="btn-danger btn-mini" onclick="userAction(${x.id},'delete')">Sil</button>`;
-      }
-      return `<div class="user-item">
-        <div class="user-info">
-          <h3>${esc(x.username)} ${role}</h3>
-          <p>${st} • ${x.key_count} Key</p>
-        </div>
-        <div class="user-actions">${btns}</div>
-      </div>`;
-    }).join('');
-  }
-}
-async function userAction(id, act){
-  if(act==='ban'){
-    const r=prompt('Ban sebebi:');if(r===null)return;
-    await api('/api/admin/user/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});
-  } else if(act==='delete'){
-    if(!confirm('Kullanıcı silinsin mi?'))return;
-    await api('/api/admin/user/'+id+'/delete',{method:'DELETE'});
-  } else {
-    await api('/api/admin/user/'+id+'/'+act,{method:'POST'});
-  }
-  loadAdmin();
-}
-async function addInvite(){
-  const d=await api('/api/admin/invite',{method:'POST',body:JSON.stringify({code:i_code.value,max_uses:i_max.value})});
-  if(d.status){i_code.value='';alert('Eklendi');}else alert(d.reason);
-}
-
-// UI
-function switchTab(t){
-  document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
-  document.getElementById('tab-'+t).classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
-  document.getElementById('nav-'+t).classList.add('active');
-  if(t==='admin')loadAdmin(); else loadKeys();
-}
-function showModal(html){
-  const bg=document.createElement('div');bg.className='modal-bg';bg.id='modalBg';
-  bg.onclick=(e)=>{if(e.target===bg)closeModal();};
-  bg.innerHTML='<div class="modal-content">'+html+'</div>';
-  document.body.appendChild(bg);
-}
+async function extendKey(id){const v=prompt('Kaç saat uzatılsın?','24');if(!v)return;const d=await api('/api/key/'+id+'/extend',{method:'POST',body:JSON.stringify({seconds:parseInt(v)*3600})});alert(d.reason||'OK');loadKeys();}
+async function keyAction(id, act){if(act==='ban'){const r=prompt('Ban sebebi:','Kural ihlali');if(r===null)return;await api('/api/key/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});}else{await api('/api/key/'+id+'/unban',{method:'POST'});}loadKeys();}
+async function viewDevices(id){const d=await api('/api/key/'+id+'/devices');if(!d.status){alert(d.reason);return;}let html=`<div class="modal-header"><h3>💻 Cihazlar (${d.devices.length})</h3><div class="close-btn" onclick="closeModal()">✕</div></div>`;if(d.devices.length===0)html+='<p style="color:#888;text-align:center;padding:20px">Henüz cihaz yok.</p>';else{html+='<div style="display:flex;flex-direction:column;gap:10px">';html+=d.devices.map(x=>`<div style="background:rgba(255,255,255,.05);padding:10px;border-radius:8px;border:1px solid rgba(220,38,38,.2)"><div style="font-family:monospace;color:#fca5a5;font-size:12px;word-break:break-all">${esc(x.hwid)}</div><div style="font-size:11px;color:#9ca3af;margin-top:4px">IP: ${esc(x.ip||'-')} | Son: ${fmtTime(x.last_seen)}</div></div>`).join('');html+='</div><button class="btn-main" style="margin-top:16px;background:#dc2626" onclick="resetDev('+id+')">🚨 Tüm Cihazları Sıfırla</button>';}showModal(html);}
+async function resetDev(id){if(!confirm('Tüm cihazlar sıfırlansın mı?'))return;const d=await api('/api/key/'+id+'/reset-devices',{method:'POST'});alert(d.reason||'OK');closeModal();loadKeys();}
+async function loadAdmin(){const s=await api('/api/admin/stats');if(s.status){s_users.textContent=s.users;s_keys.textContent=s.keys;s_active.textContent=s.active;}const u=await api('/api/admin/users');if(u.status){usrList.innerHTML=u.users.map(x=>{let role=x.is_admin?'<span class="badge b-aktif">ADMIN</span>':'<span style="font-size:10px;color:#888">USER</span>';let st=x.is_banned?'<span class="badge b-banli">BAN</span>':'<span class="badge" style="background:#14532d;color:#86efac">AKTİF</span>';let btns='';if(x.is_admin){btns+=`<button class="btn-ghost btn-mini" onclick="userAction(${x.id},'remove-admin')">Admin Kaldır</button>`;}else{btns+=x.is_banned?`<button class="btn-main btn-mini" style="background:#16a34a" onclick="userAction(${x.id},'unban')">Ban Aç</button>`:`<button class="btn-main btn-mini" style="background:#7f1d1d" onclick="userAction(${x.id},'ban')">Banla</button>`;btns+=`<button class="btn-ghost btn-mini" onclick="userAction(${x.id},'make-admin')">Admin Yap</button>`;btns+=`<button class="btn-main btn-mini" style="background:#dc2626" onclick="userAction(${x.id},'delete')">Sil</button>`;}return `<div class="user-item"><div class="user-info"><h3>${esc(x.username)} ${role}</h3><p>${st} • ${x.key_count} Key</p></div><div class="user-actions">${btns}</div></div>`;}).join('');}}
+async function userAction(id, act){if(act==='ban'){const r=prompt('Ban sebebi:');if(r===null)return;await api('/api/admin/user/'+id+'/ban',{method:'POST',body:JSON.stringify({reason:r})});}else if(act==='delete'){if(!confirm('Kullanıcı silinsin mi?'))return;await api('/api/admin/user/'+id+'/delete',{method:'DELETE'});}else{await api('/api/admin/user/'+id+'/'+act,{method:'POST'});}loadAdmin();}
+async function addInvite(){const d=await api('/api/admin/invite',{method:'POST',body:JSON.stringify({code:i_code.value,max_uses:i_max.value})});if(d.status){i_code.value='';alert('Eklendi');}else alert(d.reason);}
+function switchTab(t){document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));document.getElementById('tab-'+t).classList.add('active');document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));document.getElementById('nav-'+t).classList.add('active');if(t==='admin')loadAdmin();else loadKeys();}
+function showModal(html){const bg=document.createElement('div');bg.className='modal-bg';bg.id='modalBg';bg.onclick=(e)=>{if(e.target===bg)closeModal();};bg.innerHTML='<div class="modal-content">'+html+'</div>';document.body.appendChild(bg);}
 function closeModal(){const m=document.getElementById('modalBg');if(m)m.remove();}
-
-function showPanel(){
-  document.getElementById('authTab').classList.add('hidden');
-  document.getElementById('mainPanel').classList.remove('hidden');
-  document.getElementById('bottomNav').classList.remove('hidden');
-  document.getElementById('userBar').classList.remove('hidden');
-  
-  const p=JSON.parse(atob(token.split('.')[1]));
-  uname.textContent=p.username;
-  if(p.is_admin){ isAdmin=true; document.getElementById('nav-admin').classList.remove('hidden'); }
-  loadKeys();
-}
+function showPanel(){document.getElementById('authTab').classList.add('hidden');document.getElementById('mainPanel').classList.remove('hidden');document.getElementById('bottomNav').classList.remove('hidden');document.getElementById('userBar').classList.remove('hidden');const p=JSON.parse(atob(token.split('.')[1]));uname.textContent=p.username;if(p.is_admin){isAdmin=true;document.getElementById('nav-admin').classList.remove('hidden');}loadKeys();}
 if(token)showPanel();
 </script></body></html>"""
 
