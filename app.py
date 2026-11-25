@@ -8,7 +8,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 DATA_DIR = '/data' if os.path.isdir('/data') else os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(DATA_DIR, 'wrox_final.db')
+DB_PATH = os.path.join(DATA_DIR, 'wrox.db')
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'WROX_SECRET_2025')
 AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E'  # C++ İLE BİREBİR AYNI!
@@ -273,7 +273,7 @@ def connect():
     
     return jsonify({'status':True,'data':{'token':token,'rng':now}})
 
-# ---------- TASARIM (ÖNCEKİYLE AYNI) ----------
+# ---------- TASARIM ----------
 HTML = r"""<!DOCTYPE html>
 <html lang="tr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
