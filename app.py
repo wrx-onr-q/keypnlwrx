@@ -12,8 +12,8 @@ DB_PATH = os.path.join(DATA_DIR, 'wrox_final.db')
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'WROX_SECRET_2025')
 AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E'  # C++ İLE BİREBİR AYNI!
-ADMIN_USER = 'WROX'            # 🔥 İSTEDİĞİN ADMİN KULLANICI ADI
-ADMIN_PASS = 'Wroxtanrıgibi'   # 🔥 İSTEDİĞİN ADMİN ŞİFRESİ
+ADMIN_USER = 'WROX'            
+ADMIN_PASS = 'Wroxtanrıgibi'   
 
 UNITS = {'dakika':60,'saat':3600,'günlük':86400,'haftalık':604800,'aylık':2592000,'sınırsız':0}
 CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -43,9 +43,9 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS keys(
       id INTEGER PRIMARY KEY AUTOINCREMENT, key_value TEXT UNIQUE NOT NULL,
-      duration_seconds INTEGER NOT NULL, max_devices INTEGER DEFAULT 9999,
-      created_at INTEGER DEFAULT (strftime('%s','now')), expires_at INTEGER,
-      activated_at INTEGER, created_by TEXT, note TEXT, is_banned INTEGER DEFAULT 0, ban_reason TEXT
+      duration_seconds INTEGER NOT NULL, created_at INTEGER DEFAULT (strftime('%s','now')), 
+      expires_at INTEGER, activated_at INTEGER, created_by TEXT, note TEXT, 
+      is_banned INTEGER DEFAULT 0, ban_reason TEXT
     );
     CREATE TABLE IF NOT EXISTS key_devices(
       id INTEGER PRIMARY KEY AUTOINCREMENT, key_id INTEGER NOT NULL, hwid TEXT NOT NULL, ip TEXT,
@@ -114,7 +114,6 @@ def login():
 def create_key():
     d = request.json or {}; t = d.get('type')
     cnt = min(max(int(d.get('count') or 1),1),200)
-    md = 9999 # 🔥 CİHAZ LİMİTİ KALDIRILDI, C++ HATA VERMEZ
     pat, note = d.get('pattern'), d.get('note')
     if t=='özel':
         dur = int(d.get('days') or 0)*86400+int(d.get('hours') or 0)*3600+int(d.get('minutes') or 0)*60
@@ -125,7 +124,7 @@ def create_key():
     for _ in range(cnt):
         kv = custom_key(pat) if pat else random_key()
         try:
-            db.execute("INSERT INTO keys(key_value,duration_seconds,max_devices,created_by,note) VALUES(?,?,?,?,?)",(kv,dur,md,request.user['username'],note))
+            db.execute("INSERT INTO keys(key_value,duration_seconds,created_by,note) VALUES(?,?,?,?)",(kv,dur,request.user['username'],note))
             created.append(kv)
         except: pass
     db.commit(); return jsonify({'status':True,'keys':created})
@@ -237,7 +236,7 @@ def admin_add_invite():
         return jsonify({'status':True,'reason':'Eklendi'})
     except: return jsonify({'status':False,'reason':'Zaten var'})
 
-# 🔥 C++ İLE %100 UYUMLU /connect
+# 🔥 C++ UYUMLU /connect (CİHAZ SINIRI YOK, HATA YOK)
 @app.route('/connect',methods=['POST', 'GET'])
 def connect():
     if request.method == 'GET': return jsonify({'status':False, 'reason':'WROX: Sadece POST kabul edilir.'})
@@ -245,23 +244,36 @@ def connect():
     serial = request.form.get('serial') or (request.json or {}).get('serial') or 'unknown'
     game = request.form.get('game') or (request.json or {}).get('game') or 'PUBG'
     ip = request.remote_addr or ''
+    
     if not user_key: return jsonify({'status':False,'reason':'Eksik user_key'})
+    
     db = get_db(); k = db.execute("SELECT * FROM keys WHERE key_value=?",(user_key,)).fetchone()
     if not k: return jsonify({'status':False,'reason':'Key bulunamadı'})
     if k['is_banned']: return jsonify({'status':False,'reason':'Key banlı'})
+    
     now = int(time.time())
+    
+    # Cihazı kaydet (Sınır yok, sadece bilgi amaçlı)
     dev = db.execute("SELECT * FROM key_devices WHERE key_id=? AND hwid=?",(k['id'],serial)).fetchone()
     if not dev: db.execute("INSERT INTO key_devices(key_id,hwid,ip) VALUES(?,?,?)",(k['id'],serial,ip))
     else: db.execute("UPDATE key_devices SET last_seen=?, ip=? WHERE id=?",(now,ip,dev['id']))
+    
+    # İlk aktivasyon
     if not k['activated_at']:
         exp = None if k['duration_seconds']==0 else now+k['duration_seconds']
         db.execute("UPDATE keys SET activated_at=?, expires_at=? WHERE id=?",(now,exp,k['id']))
         k = dict(k); k['expires_at']=exp
+    
+    # Süre kontrolü
     if k['expires_at'] is not None and now > k['expires_at']: return jsonify({'status':False,'reason':'Süre doldu'})
+    
+    # 🔥 C++'IN BEKLEDİĞİ MD5 TOKEN
     token = hashlib.md5(f'{game}-{user_key}-{serial}-{AUTH_SECRET}'.encode()).hexdigest()
-    db.commit(); return jsonify({'status':True,'data':{'token':token,'rng':now}})
+    db.commit()
+    
+    return jsonify({'status':True,'data':{'token':token,'rng':now}})
 
-# ---------- KUSURSUZ VENOM VIP TASARIMI ----------
+# ---------- TASARIM (ÖNCEKİYLE AYNI) ----------
 HTML = r"""<!DOCTYPE html>
 <html lang="tr"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
