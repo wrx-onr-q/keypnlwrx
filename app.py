@@ -12,8 +12,8 @@ DB_PATH = os.path.join(DATA_DIR, 'wrox.db')
 
 JWT_SECRET = os.environ.get('JWT_SECRET', 'WROX_SECRET_DEGISTIR_2025')
 AUTH_SECRET = 'Vm8Lk7Uj2JmsjCPVPVjrLa7zgfx3uz9E' 
-ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
-ADMIN_PASS = os.environ.get('ADMIN_PASS', 'admin123')
+ADMIN_USER = os.environ.get('ADMIN_USER', 'WROX')
+ADMIN_PASS = os.environ.get('ADMIN_PASS', 'Wroxtanrıgibi')
 
 UNITS = {'dakika':60,'saat':3600,'günlük':86400,'haftalık':604800,'aylık':2592000,'sınırsız':0}
 CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
